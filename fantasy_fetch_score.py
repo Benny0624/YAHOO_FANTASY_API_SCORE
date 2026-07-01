@@ -63,7 +63,7 @@ def send_outlook_email(subject: str, body_text: str):
         msg['To'] = ", ".join(recipients)
 
         # Outlook 使用 smtp-mail.outlook.com 587 埠口 (TLS)
-        with smtplib.SMTP("smtp-mail.outlook.com", 587) as server:
+        with smtplib.SMTP("smtp-mail.outlook.com", 587, timeout=15) as server:
             server.starttls()  # 啟動安全加密
             server.login(OUTLOOK_EMAIL, OUTLOOK_PASSWORD)
             server.sendmail(OUTLOOK_EMAIL, recipients, msg.as_string())
