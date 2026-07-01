@@ -1,0 +1,33 @@
+# 環境變數（含機密資訊，絕對不能 commit）
+.env
+
+# Yahoo OAuth 憑證（本機使用，不上傳）
+oauth2.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# uv
+.uv/
+uv.lock
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

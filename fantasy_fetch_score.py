@@ -5,6 +5,9 @@ from email.mime.text import MIMEText
 from email.header import Header
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 引入 Yahoo Fantasy API 相關套件
 from yahoo_oauth import OAuth2
