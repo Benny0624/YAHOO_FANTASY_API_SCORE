@@ -124,7 +124,7 @@ def home():
         "config_check": {
             "has_league_id": bool(YAHOO_LEAGUE_ID),
             "has_oauth_json": bool(YAHOO_OAUTH_JSON_STR),
-            "sport": YAHOO_SPORT
+            "sport": YAHOO_SPORT,
             "outlook_sender": OUTLOOK_EMAIL,
             "has_outlook_password": bool(OUTLOOK_PASSWORD),
             "recipients": OUTLOOK_TO_EMAILS
