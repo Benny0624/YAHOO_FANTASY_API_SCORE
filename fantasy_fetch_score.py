@@ -18,9 +18,10 @@ YAHOO_LEAGUE_ID = os.environ.get("YAHOO_LEAGUE_ID")
 YAHOO_OAUTH_JSON_STR = os.environ.get("YAHOO_OAUTH_JSON")
 YAHOO_SPORT = os.environ.get("YAHOO_SPORT", "mlb")
 
-RESEND_API_KEY    = os.environ.get("RESEND_API_KEY")
-RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "")
-TO_EMAILS         = os.environ.get("TO_EMAILS", "")
+BREVO_API_KEY    = os.environ.get("BREVO_API_KEY")
+BREVO_FROM_EMAIL = os.environ.get("BREVO_FROM_EMAIL", "")
+BREVO_FROM_NAME  = os.environ.get("BREVO_FROM_NAME", "Yahoo Fantasy Report")
+TO_EMAILS        = os.environ.get("TO_EMAILS", "")
 
 # 將 Yahoo OAuth JSON 寫入暫存檔，供 yahoo_oauth 套件讀取
 OAUTH_FILE_PATH = "/tmp/oauth2.json"
@@ -41,43 +42,43 @@ def init_yahoo_oauth_file():
 # 啟動時立即執行一次
 init_yahoo_oauth_file()
 
-# ==================== 2. Resend 寄信函數 ====================
+# ==================== 2. Brevo 寄信函數 ====================
 
 def send_email(subject: str, body_text: str):
-    if not RESEND_API_KEY:
-        print("❌ 寄信失敗：未設定 RESEND_API_KEY")
+    if not BREVO_API_KEY:
+        print("❌ 寄信失敗：未設定 BREVO_API_KEY")
         return False
-    if not RESEND_FROM_EMAIL:
-        print("❌ 寄信失敗：未設定 RESEND_FROM_EMAIL")
+    if not BREVO_FROM_EMAIL:
+        print("❌ 寄信失敗：未設定 BREVO_FROM_EMAIL")
         return False
 
-    recipients = [e.strip() for e in TO_EMAILS.split(",") if e.strip()]
+    recipients = [{"email": e.strip()} for e in TO_EMAILS.split(",") if e.strip()]
     if not recipients:
         print("❌ 寄信失敗：收件者清單 (TO_EMAILS) 為空")
         return False
 
     try:
         resp = requests.post(
-            "https://api.resend.com/emails",
+            "https://api.brevo.com/v3/smtp/email",
             headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "api-key":      BREVO_API_KEY,
                 "Content-Type": "application/json",
             },
             json={
-                "from":    RESEND_FROM_EMAIL,
-                "to":      recipients,
-                "subject": subject,
-                "text":    body_text,
+                "sender":      {"email": BREVO_FROM_EMAIL, "name": BREVO_FROM_NAME},
+                "to":          recipients,
+                "subject":     subject,
+                "textContent": body_text,
             },
             timeout=15,
         )
-        if resp.status_code == 200:
-            print(f"📧 郵件成功寄出至: {recipients}")
+        if resp.status_code == 201:
+            print(f"📧 郵件成功寄出至: {[r['email'] for r in recipients]}")
             return True
-        print(f"❌ Resend 寄信失敗 (HTTP {resp.status_code}): {resp.text}")
+        print(f"❌ Brevo 寄信失敗 (HTTP {resp.status_code}): {resp.text}")
         return False
     except Exception as e:
-        print(f"❌ Resend 寄信發生未預期錯誤: {e}")
+        print(f"❌ Brevo 寄信發生未預期錯誤: {e}")
         return False
 
 # ==================== 3. Yahoo Fantasy API 抓取邏輯 ====================
@@ -150,9 +151,9 @@ def home():
             "has_league_id":    bool(YAHOO_LEAGUE_ID),
             "has_oauth_json":   bool(YAHOO_OAUTH_JSON_STR),
             "sport":            YAHOO_SPORT,
-            "has_resend_key":   bool(RESEND_API_KEY),
-            "resend_from":      RESEND_FROM_EMAIL,
-            "recipients":       TO_EMAILS,
+            "has_brevo_key":  bool(BREVO_API_KEY),
+            "brevo_from":     BREVO_FROM_EMAIL,
+            "recipients":     TO_EMAILS,
         },
         "endpoints": {
             "Trigger Send Mail": "/send-report",
