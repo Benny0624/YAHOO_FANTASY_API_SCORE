@@ -5,6 +5,9 @@ from email.mime.text import MIMEText
 from email.header import Header
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 引入 Yahoo Fantasy API 相關套件
 from yahoo_oauth import OAuth2
@@ -77,9 +80,19 @@ def fetch_yahoo_fantasy_data():
     if not os.path.exists(OAUTH_FILE_PATH):
         return "錯誤：找不到 Yahoo OAuth 憑證檔，請確認環境變數 YAHOO_OAUTH_JSON 是否正確。"
 
+    # 確認 oauth2.json 包含 refresh_token，避免進入互動授權流程
+    try:
+        with open(OAUTH_FILE_PATH, "r", encoding="utf-8") as f:
+            oauth_data = json.load(f)
+        if not oauth_data.get("refresh_token"):
+            return "❌ oauth2.json 缺少 refresh_token，請在本機重新執行 Yahoo OAuth 授權流程，取得包含 refresh_token 的憑證後更新 YAHOO_OAUTH_JSON 環境變數。"
+    except Exception as e:
+        return f"❌ 讀取 oauth2.json 失敗: {str(e)}"
+
     try:
         # 1. 認證登入 (yahoo_oauth 會自動讀取並更新 /tmp/oauth2.json)
-        sc = OAuth2(None, None, from_file=OAUTH_FILE_PATH)
+        # browser_callback=None 確保在無頭環境中不嘗試開啟瀏覽器互動
+        sc = OAuth2(None, None, from_file=OAUTH_FILE_PATH, browser_callback=None)
 
         # 2. 建立 Game 物件
         gm = yfa.Game(sc, YAHOO_SPORT)
@@ -111,6 +124,8 @@ def fetch_yahoo_fantasy_data():
             report += f"{idx}. {team_name}\n"
         return report
 
+    except EOFError:
+        return "❌ Yahoo OAuth Token 已過期且無法在伺服器環境中互動授權。請在本機重新執行授權流程，取得新的 oauth2.json（包含有效的 refresh_token）後更新 YAHOO_OAUTH_JSON 環境變數。"
     except Exception as e:
         return f"❌ 抓取 Yahoo Fantasy 資料時發生錯誤: {str(e)}"
 
