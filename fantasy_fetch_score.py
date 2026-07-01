@@ -105,6 +105,10 @@ def fetch_yahoo_fantasy_data():
                 league_id = leagues[0]
             else:
                 return "錯誤：此 Yahoo 帳號目前沒有任何聯盟資料。"
+        # Yahoo 要求完整格式 "{game_key}.l.{league_number}"
+        # 若只填了數字部分，自動補上當前賽季 game_id
+        if "." not in str(league_id):
+            league_id = f"{gm.game_id()}.l.{league_id}"
         lg = gm.to_league(league_id)
         
         # 4. 抓取聯盟基本資訊
