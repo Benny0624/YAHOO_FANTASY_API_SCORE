@@ -70,8 +70,14 @@ def send_outlook_email(subject: str, body_text: str):
         
         print(f"📧 郵件成功寄出至: {recipients}")
         return True
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"❌ SMTP 驗證失敗（帳號/密碼錯誤，或未啟用 App Password）: {e}")
+        return False
+    except smtplib.SMTPException as e:
+        print(f"❌ SMTP 錯誤: {e}")
+        return False
     except Exception as e:
-        print(f"❌ Outlook 寄信發生錯誤: {e}")
+        print(f"❌ Outlook 寄信發生未預期錯誤: {e}")
         return False
 
 # ==================== 3. Yahoo Fantasy API 抓取邏輯 ====================
@@ -149,9 +155,21 @@ def home():
             "recipients": OUTLOOK_TO_EMAILS
         },
         "endpoints": {
-            "Trigger Send Mail": "/send-report"
+            "Trigger Send Mail": "/send-report",
+            "Test Email Only":   "/test-email"
         }
     }
+
+
+@app.get("/test-email")
+def test_email():
+    """同步寄一封測試信，直接回傳成功或錯誤原因，方便除錯。"""
+    subject = "🔧 Yahoo Fantasy Mailer 測試信"
+    body    = "這是一封測試信，確認 Outlook SMTP 設定正確。"
+    ok = send_outlook_email(subject, body)
+    if ok:
+        return JSONResponse(content={"status": "Success", "message": "測試信已寄出，請檢查收件匣（含垃圾郵件）。"})
+    return JSONResponse(status_code=500, content={"status": "Failed", "message": "寄信失敗，請查看 Render logs 取得詳細錯誤。"})
     
 @app.get("/send-report")
 def trigger_send_report(background_tasks: BackgroundTasks):

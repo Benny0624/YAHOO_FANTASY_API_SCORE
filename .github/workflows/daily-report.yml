@@ -1,0 +1,30 @@
+name: Daily Fantasy Score Report
+
+on:
+  schedule:
+    # 每天 UTC 12:00 = 台灣時間 20:00
+    - cron: '0 12 * * *'
+  workflow_dispatch: # 允許手動觸發
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger send-report endpoint
+        run: |
+          response=$(curl -s -w "\n%{http_code}" "${{ secrets.RENDER_ENDPOINT_URL }}/send-report")
+          body=$(echo "$response" | head -n -1)
+          status=$(echo "$response" | tail -n 1)
+
+          echo "HTTP Status: $status"
+          echo "Response Body:"
+          echo "$body" | python3 -m json.tool 2>/dev/null || echo "$body"
+
+          if [ "$status" != "200" ]; then
+            echo "❌ 請求失敗，HTTP $status"
+            exit 1
+          fi
+
+          echo "✅ 報告已成功觸發"
