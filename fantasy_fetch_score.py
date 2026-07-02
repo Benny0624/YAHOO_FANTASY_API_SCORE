@@ -11,7 +11,7 @@ load_dotenv()
 from yahoo_oauth import OAuth2
 import yahoo_fantasy_api as yfa
 
-app = FastAPI(title="Yahoo Fantasy API & Outlook Mailer")
+app = FastAPI(title="Yahoo Fantasy API & Brevo Mailer")
 
 # ==================== 1. 環境變數讀取與暫存檔處理 ====================
 YAHOO_LEAGUE_ID = os.environ.get("YAHOO_LEAGUE_ID")
@@ -202,7 +202,7 @@ def home():
 def test_email():
     """同步寄一封測試信，直接回傳成功或錯誤原因，方便除錯。"""
     subject = "🔧 Yahoo Fantasy Mailer 測試信"
-    body    = "這是一封測試信，確認 Outlook SMTP 設定正確。"
+    body    = "這是一封測試信，確認 Brevo API 設定正確。"
     ok = send_email(subject, body)
     if ok:
         return JSONResponse(content={"status": "Success", "message": "測試信已寄出，請檢查收件匣（含垃圾郵件）。"})
@@ -222,7 +222,7 @@ def trigger_send_report(background_tasks: BackgroundTasks):
         
         return JSONResponse(content={
             "status": "Success",
-            "message": "已成功抓取資料，正在背景透過 Outlook 寄出信件！",
+            "message": "已成功抓取資料，正在背景透過 Brevo 寄出信件！",
             "preview_data": report_content[:300] + "\n... (下略) ..."
         })
     else:
