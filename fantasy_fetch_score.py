@@ -95,7 +95,11 @@ def fetch_yahoo_fantasy_data():
             return "❌ oauth2.json 缺少 refresh_token，請在本機重新執行 Yahoo OAuth 授權流程，取得包含 refresh_token 的憑證後更新 YAHOO_OAUTH_JSON 環境變數。"
     except Exception as e:
         return f"❌ 讀取 oauth2.json 失敗: {str(e)}"
-
+        
+    try:
+        # 1. 認證登入 (yahoo_oauth 會自動讀取並更新 /tmp/oauth2.json)
+        # browser_callback=None 確保在無頭環境中不嘗試開啟瀏覽器互動
+        sc = OAuth2(None, None, from_file=OAUTH_FILE_PATH, browser_callback=None)
     try:
         # 1. 認證登入 (yahoo_oauth 會自動讀取並更新 /tmp/oauth2.json)
         # browser_callback=None 確保在無頭環境中不嘗試開啟瀏覽器互動
@@ -117,30 +121,67 @@ def fetch_yahoo_fantasy_data():
         if "." not in str(league_id):
             league_id = f"{gm.game_id()}.l.{league_id}"
         lg = gm.to_league(league_id)
-        
+
         # 4. 抓取聯盟基本資訊
         settings = lg.settings()
         standings = lg.standings()
+        # 🚀【新增】抓取當前週次與對戰組合 (Matchups) 資料
+        current_week = lg.current_week()
+        matchups_data = lg.matchups()
 
         # 5. 格式化成信件要顯示的文字
         report = f"🏆 Yahoo Fantasy 聯盟報告 ({YAHOO_SPORT.upper()})\n"
         report += "=" * 40 + "\n"
         report += f"聯盟名稱: {settings.get('name', '未知')}\n"
-        report += f"聯盟 ID: {league_id}\n\n"
+        report += f"聯盟 ID: {league_id}\n"
+        report += f"目前週次: Week {current_week}\n\n" # 🚀【新增】信頭加上週次
         report += "📊 目前聯盟排名 (Standings):\n"
         report += "-" * 40 + "\n"
         for idx, team in enumerate(standings, 1):
             # 根據套件回傳結構，可能為 dict 或物件，這裡做安全讀取
             team_name = team.get('name') if isinstance(team, dict) else getattr(team, 'name', str(team))
             report += f"{idx}. {team_name}\n"
+        report += "\n"
+
+        # 🚀【新增】B. 本週對戰成績 (Matchups) 區段
+        report += f"⚔️ Week {current_week} 本週對戰成績 (Matchups):\n"
+        report += "-" * 40 + "\n"
+
+        matchups_list = []
+        if isinstance(matchups_data, dict):
+            try:
+                # 解析 Yahoo API 的巢狀結構
+                matchups_list = matchups_data.get('fantasy_content', {}).get('league', [{}, {}])[1].get('scoreboard', {}).get('matchups', {}).get('matchup', [])
+            except Exception:
+                matchups_list = matchups_data if isinstance(matchups_data, list) else []
+        elif isinstance(matchups_data, list):
+            matchups_list = matchups_data
+        if matchups_list:
+            if isinstance(matchups_list, dict):
+                matchups_list = [matchups_list]
+            for idx, match in enumerate(matchups_list, 1):
+                try:
+                    teams = match.get('teams', {}).get('team', [])
+                    if len(teams) >= 2:
+                        team1 = teams[0]
+                        team2 = teams[1]
+                        team1_name = team1.get('name', '未知隊伍1')
+                        team2_name = team2.get('name', '未知隊伍2')
+                        # 取得兩隊目前的得分/勝場數 (Points / Category Wins)
+                        team1_points = team1.get('team_points', {}).get('total', '0')
+                        team2_points = team2.get('team_points', {}).get('total', '0')
+                        report += f"Match {idx}:\n"
+                        report += f"  🔥 {team1_name} ({team1_points})  vs  {team2_name} ({team2_points})\n\n"
+                except Exception as e:
+                    print(f"⚠️ 解析單一 Matchup 失敗: {e}")
+        else:
+            report += "（暫無本週對戰資料或格式解析失敗）\n"
         return report
 
     except EOFError:
         return "❌ Yahoo OAuth Token 已過期且無法在伺服器環境中互動授權。請在本機重新執行授權流程，取得新的 oauth2.json（包含有效的 refresh_token）後更新 YAHOO_OAUTH_JSON 環境變數。"
     except Exception as e:
         return f"❌ 抓取 Yahoo Fantasy 資料時發生錯誤: {str(e)}"
-
-
 # ==================== 4. API 路由設定 ====================
 
 @app.get("/")
