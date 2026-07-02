@@ -130,7 +130,7 @@ def fetch_yahoo_fantasy_data():
         report += "📊 聯盟排名\n"
         report += "-" * 30 + "\n"
 
-        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        medals = {1: "🥇", 2: "🥈", 3: "🥉", 8: "[豆汁組]🤮", 9: "[豆汁組]🤮", 10: "[豆汁組]🤢"}
         for team in standings:
             name = team.get("name", "未知隊伍")
             rank_raw = team.get("rank", "?")
