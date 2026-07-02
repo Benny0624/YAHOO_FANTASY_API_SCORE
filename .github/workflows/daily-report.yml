@@ -2,8 +2,8 @@ name: Daily Fantasy Score Report
 
 on:
   schedule:
-    # 每天 UTC 12:00 = 台灣時間 20:00
-    - cron: '0 12 * * *'
+    # 每天 UTC 06:45 = 台灣時間 14:45（提早設定以緩衝 GitHub Actions 排程延遲與 Render 冷啟動）
+    - cron: '45 6 * * *'
   workflow_dispatch: # 允許手動觸發
 
 jobs:
