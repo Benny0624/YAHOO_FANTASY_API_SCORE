@@ -87,23 +87,17 @@ def fetch_yahoo_fantasy_data():
     if not os.path.exists(OAUTH_FILE_PATH):
         return "錯誤：找不到 Yahoo OAuth 憑證檔，請確認環境變數 YAHOO_OAUTH_JSON 是否正確。"
 
-    # 確認 oauth2.json 包含 refresh_token，避免進入互動授權流程
     try:
         with open(OAUTH_FILE_PATH, "r", encoding="utf-8") as f:
             oauth_data = json.load(f)
         if not oauth_data.get("refresh_token"):
-            return "❌ oauth2.json 缺少 refresh_token，請在本機重新執行 Yahoo OAuth 授權流程，取得包含 refresh_token 的憑證後更新 YAHOO_OAUTH_JSON 環境變數。"
+            return "❌ oauth2.json 缺少 refresh_token"
     except Exception as e:
         return f"❌ 讀取 oauth2.json 失敗: {str(e)}"
-        
+
     try:
-        # 1. 認證登入 (yahoo_oauth 會自動讀取並更新 /tmp/oauth2.json)
-        # browser_callback=None 確保在無頭環境中不嘗試開啟瀏覽器互動
         sc = OAuth2(None, None, from_file=OAUTH_FILE_PATH, browser_callback=None)
-        # 2. 建立 Game 物件
         gm = yfa.Game(sc, YAHOO_SPORT)
-        # 3. 取得 League 物件
-        # 如果沒有設定 League ID，就抓取使用者目前擁有的第一個 League ID
         league_id = YAHOO_LEAGUE_ID
         if not league_id:
             leagues = gm.league_ids()
@@ -111,71 +105,70 @@ def fetch_yahoo_fantasy_data():
                 league_id = leagues[0]
             else:
                 return "錯誤：此 Yahoo 帳號目前沒有任何聯盟資料。"
-        # Yahoo 要求完整格式 "{game_key}.l.{league_number}"
-        # 若只填了數字部分，自動補上當前賽季 game_id
         if "." not in str(league_id):
             league_id = f"{gm.game_id()}.l.{league_id}"
         lg = gm.to_league(league_id)
 
-        # 4. 抓取聯盟基本資訊
         settings = lg.settings()
         standings = lg.standings()
-        # 🚀【新增】抓取當前週次與對戰組合 (Matchups) 資料
         current_week = lg.current_week()
         matchups_data = lg.matchups()
-        
-       # ⚙️ 除錯：直接將 Raw JSON 轉成字串，印在 Log 裡
-        raw_json_str = json.dumps(matchups_data, indent=2, ensure_ascii=False)
-        print("====== DEBUG MATCHUPS RAW DATA ======")
-        print(raw_json_str)
-        print("=====================================")
 
-        
         # 5. 格式化成信件要顯示的文字
         report = f"🏆 Yahoo Fantasy 聯盟報告 ({YAHOO_SPORT.upper()})\n"
         report += "=" * 40 + "\n"
         report += f"聯盟名稱: {settings.get('name', '未知')}\n"
-        report += f"聯盟 ID: {league_id}\n"
-        report += f"目前週次: Week {current_week}\n\n" # 🚀【新增】信頭加上週次
+        report += f"目前週次: Week {current_week}\n\n"
+
+        # --- A. 聯盟排名 (Standings) ---
         report += "📊 目前聯盟排名 (Standings):\n"
         report += "-" * 40 + "\n"
+
         for idx, team in enumerate(standings, 1):
-            # 根據套件回傳結構，可能為 dict 或物件，這裡做安全讀取
             team_name = team.get('name') if isinstance(team, dict) else getattr(team, 'name', str(team))
             report += f"{idx}. {team_name}\n"
         report += "\n"
-
-        # 🚀【新增】B. 本週對戰成績 (Matchups) 區段
+        
+        # --- B. 本週對戰成績 (Matchups) ---
         report += f"⚔️ Week {current_week} 本週對戰成績 (Matchups):\n"
         report += "-" * 40 + "\n"
 
-        matchups_list = []
-        if isinstance(matchups_data, dict):
-            try:
-                # 解析 Yahoo API 的巢狀結構
-                matchups_list = matchups_data.get('fantasy_content', {}).get('league', [{}, {}])[1].get('scoreboard', {}).get('matchups', {}).get('matchup', [])
-            except Exception:
-                matchups_list = matchups_data if isinstance(matchups_data, list) else []
-        elif isinstance(matchups_data, list):
-            matchups_list = matchups_data
-        if matchups_list:
-            if isinstance(matchups_list, dict):
-                matchups_list = [matchups_list]
-            for idx, match in enumerate(matchups_list, 1):
-                try:
-                    teams = match.get('teams', {}).get('team', [])
-                    if len(teams) >= 2:
-                        team1 = teams[0]
-                        team2 = teams[1]
-                        team1_name = team1.get('name', '未知隊伍1')
-                        team2_name = team2.get('name', '未知隊伍2')
-                        # 取得兩隊目前的得分/勝場數 (Points / Category Wins)
-                        team1_points = team1.get('team_points', {}).get('total', '0')
-                        team2_points = team2.get('team_points', {}).get('total', '0')
-                        report += f"Match {idx}:\n"
-                        report += f"  🔥 {team1_name} ({team1_points})  vs  {team2_name} ({team2_points})\n\n"
-                except Exception as e:
-                    print(f"⚠️ 解析單一 Matchup 失敗: {e}")
+        # 解析 Yahoo 奇葩的 matchups 結構
+        matchups_dict = {}
+        try:
+            # 依據你的 JSON 結構定位到 matchups 節點
+            matchups_dict = matchups_data.get('fantasy_content', {}).get('league', [{}, {}])[1].get('scoreboard', {}).get('0', {}).get('matchups', {})
+        except Exception as e:
+            print(f"定位 matchups 節點失敗: {e}")
+
+        if matchups_dict:
+            match_idx = 1
+            # 遍歷 "0", "1", "2", "3"... 等對戰組合
+            for key, val in matchups_dict.items():
+                if key.isdigit():
+                    try:
+                        matchup = val.get('matchup', {})
+                        # 取得 teams 中的 "0" 與 "1" 兩隊
+                        teams_data = matchup.get('0', {}).get('teams', {})
+
+                        t1_obj = teams_data.get('0', {}).get('team', [])
+                        t2_obj = teams_data.get('1', {}).get('team', [])
+
+
+                        if len(t1_obj) >= 2 and len(t2_obj) >= 2:
+                            # 1. 解析隊伍名稱 (在第一個陣列元素的 index 2 的 'name')
+                            t1_name = t1_obj[0][2].get('name', '未知隊伍1')
+                            t2_name = t2_obj[0][2].get('name', '未知隊伍2')
+                            
+                            # 2. 解析當前比分 (在第二個元素 dictionary 的 'team_points' 裡)
+                            t1_score = t1_obj[1].get('team_points', {}).get('total', '0')
+                            t2_score = t2_obj[1].get('team_points', {}).get('total', '0')
+
+                            report += f"Match {match_idx}:\n"
+                            report += f"  🔥 {t1_name} ({t1_score})  vs  {t2_name} ({t2_score})\n\n"
+                            match_idx += 1
+                    except Exception as e:
+                        print(f"解析對戰組合 {key} 失敗: {e}")
         else:
             report += "（暫無本週對戰資料或格式解析失敗）\n"
         return report
