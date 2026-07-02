@@ -100,11 +100,6 @@ def fetch_yahoo_fantasy_data():
         # 1. 認證登入 (yahoo_oauth 會自動讀取並更新 /tmp/oauth2.json)
         # browser_callback=None 確保在無頭環境中不嘗試開啟瀏覽器互動
         sc = OAuth2(None, None, from_file=OAUTH_FILE_PATH, browser_callback=None)
-    try:
-        # 1. 認證登入 (yahoo_oauth 會自動讀取並更新 /tmp/oauth2.json)
-        # browser_callback=None 確保在無頭環境中不嘗試開啟瀏覽器互動
-        sc = OAuth2(None, None, from_file=OAUTH_FILE_PATH, browser_callback=None)
-
         # 2. 建立 Game 物件
         gm = yfa.Game(sc, YAHOO_SPORT)
         # 3. 取得 League 物件
