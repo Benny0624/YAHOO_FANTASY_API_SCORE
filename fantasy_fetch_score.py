@@ -1,8 +1,6 @@
 import os
 import json
-import smtplib
-from email.mime.text import MIMEText
-from email.header import Header
+import requests
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
@@ -20,9 +18,10 @@ YAHOO_LEAGUE_ID = os.environ.get("YAHOO_LEAGUE_ID")
 YAHOO_OAUTH_JSON_STR = os.environ.get("YAHOO_OAUTH_JSON")
 YAHOO_SPORT = os.environ.get("YAHOO_SPORT", "mlb")
 
-OUTLOOK_EMAIL = os.environ.get("OUTLOOK_EMAIL")
-OUTLOOK_PASSWORD = os.environ.get("OUTLOOK_PASSWORD")
-OUTLOOK_TO_EMAILS = os.environ.get("OUTLOOK_TO_EMAILS", "")
+BREVO_API_KEY    = os.environ.get("BREVO_API_KEY")
+BREVO_FROM_EMAIL = os.environ.get("BREVO_FROM_EMAIL", "")
+BREVO_FROM_NAME  = os.environ.get("BREVO_FROM_NAME", "Yahoo Fantasy Report")
+TO_EMAILS        = os.environ.get("TO_EMAILS", "")
 
 # 將 Yahoo OAuth JSON 寫入暫存檔，供 yahoo_oauth 套件讀取
 OAUTH_FILE_PATH = "/tmp/oauth2.json"
@@ -43,41 +42,43 @@ def init_yahoo_oauth_file():
 # 啟動時立即執行一次
 init_yahoo_oauth_file()
 
-# ==================== 2. Outlook 寄信函數 ====================
+# ==================== 2. Brevo 寄信函數 ====================
 
-def send_outlook_email(subject: str, body_text: str):
-    if not OUTLOOK_EMAIL or not OUTLOOK_PASSWORD:
-        print("❌ 寄信失敗：未設定 Outlook 帳號或密碼環境變數")
+def send_email(subject: str, body_text: str):
+    if not BREVO_API_KEY:
+        print("❌ 寄信失敗：未設定 BREVO_API_KEY")
+        return False
+    if not BREVO_FROM_EMAIL:
+        print("❌ 寄信失敗：未設定 BREVO_FROM_EMAIL")
         return False
 
-    # 解析多個收件者
-    recipients = [email.strip() for email in OUTLOOK_TO_EMAILS.split(",") if email.strip()]
+    recipients = [{"email": e.strip()} for e in TO_EMAILS.split(",") if e.strip()]
     if not recipients:
-        print("❌ 寄信失敗：收件者清單 (OUTLOOK_TO_EMAILS) 為空")
+        print("❌ 寄信失敗：收件者清單 (TO_EMAILS) 為空")
         return False
 
     try:
-        msg = MIMEText(body_text, 'plain', 'utf-8')
-        msg['Subject'] = Header(subject, 'utf-8')
-        msg['From'] = OUTLOOK_EMAIL
-        msg['To'] = ", ".join(recipients)
-
-        # Outlook 使用 smtp-mail.outlook.com 587 埠口 (TLS)
-        with smtplib.SMTP("smtp-mail.outlook.com", 587, timeout=15) as server:
-            server.starttls()  # 啟動安全加密
-            server.login(OUTLOOK_EMAIL, OUTLOOK_PASSWORD)
-            server.sendmail(OUTLOOK_EMAIL, recipients, msg.as_string())
-        
-        print(f"📧 郵件成功寄出至: {recipients}")
-        return True
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"❌ SMTP 驗證失敗（帳號/密碼錯誤，或未啟用 App Password）: {e}")
-        return False
-    except smtplib.SMTPException as e:
-        print(f"❌ SMTP 錯誤: {e}")
+        resp = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key":      BREVO_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json={
+                "sender":      {"email": BREVO_FROM_EMAIL, "name": BREVO_FROM_NAME},
+                "to":          recipients,
+                "subject":     subject,
+                "textContent": body_text,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 201:
+            print(f"📧 郵件成功寄出至: {[r['email'] for r in recipients]}")
+            return True
+        print(f"❌ Brevo 寄信失敗 (HTTP {resp.status_code}): {resp.text}")
         return False
     except Exception as e:
-        print(f"❌ Outlook 寄信發生未預期錯誤: {e}")
+        print(f"❌ Brevo 寄信發生未預期錯誤: {e}")
         return False
 
 # ==================== 3. Yahoo Fantasy API 抓取邏輯 ====================
@@ -147,12 +148,12 @@ def home():
     return {
         "status": "Yahoo Fantasy Mailer is running!",
         "config_check": {
-            "has_league_id": bool(YAHOO_LEAGUE_ID),
-            "has_oauth_json": bool(YAHOO_OAUTH_JSON_STR),
-            "sport": YAHOO_SPORT,
-            "outlook_sender": OUTLOOK_EMAIL,
-            "has_outlook_password": bool(OUTLOOK_PASSWORD),
-            "recipients": OUTLOOK_TO_EMAILS
+            "has_league_id":    bool(YAHOO_LEAGUE_ID),
+            "has_oauth_json":   bool(YAHOO_OAUTH_JSON_STR),
+            "sport":            YAHOO_SPORT,
+            "has_brevo_key":  bool(BREVO_API_KEY),
+            "brevo_from":     BREVO_FROM_EMAIL,
+            "recipients":     TO_EMAILS,
         },
         "endpoints": {
             "Trigger Send Mail": "/send-report",
@@ -166,7 +167,7 @@ def test_email():
     """同步寄一封測試信，直接回傳成功或錯誤原因，方便除錯。"""
     subject = "🔧 Yahoo Fantasy Mailer 測試信"
     body    = "這是一封測試信，確認 Outlook SMTP 設定正確。"
-    ok = send_outlook_email(subject, body)
+    ok = send_email(subject, body)
     if ok:
         return JSONResponse(content={"status": "Success", "message": "測試信已寄出，請檢查收件匣（含垃圾郵件）。"})
     return JSONResponse(status_code=500, content={"status": "Failed", "message": "寄信失敗，請查看 Render logs 取得詳細錯誤。"})
@@ -181,7 +182,7 @@ def trigger_send_report(background_tasks: BackgroundTasks):
     # 3. 如果抓取成功，丟到背景寄信
     if "錯誤" not in report_content and "❌" not in report_content:
         subject = f"📢 Yahoo Fantasy ({YAHOO_SPORT.upper()}) 聯盟最新戰報"
-        background_tasks.add_task(send_outlook_email, subject, report_content)
+        background_tasks.add_task(send_email, subject, report_content)
         
         return JSONResponse(content={
             "status": "Success",
