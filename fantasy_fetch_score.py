@@ -123,7 +123,14 @@ def fetch_yahoo_fantasy_data():
         # 🚀【新增】抓取當前週次與對戰組合 (Matchups) 資料
         current_week = lg.current_week()
         matchups_data = lg.matchups()
+        
+       # ⚙️ 除錯：直接將 Raw JSON 轉成字串，印在 Log 裡
+        raw_json_str = json.dumps(matchups_data, indent=2, ensure_ascii=False)
+        print("====== DEBUG MATCHUPS RAW DATA ======")
+        print(raw_json_str)
+        print("=====================================")
 
+        
         # 5. 格式化成信件要顯示的文字
         report = f"🏆 Yahoo Fantasy 聯盟報告 ({YAHOO_SPORT.upper()})\n"
         report += "=" * 40 + "\n"
