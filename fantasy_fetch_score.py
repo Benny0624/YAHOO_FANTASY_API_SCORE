@@ -125,7 +125,7 @@ def reply_keyword_task(reply_token: str, keyword: str):
 
     # 比對時轉小寫，確保英文關鍵字（如 top3）大小寫都能通
     keyword_lower = keyword.lower()
-    if keyword_lower in [k.lower() for k in KEYWORDS_TOP3]::
+    if keyword_lower in [k.lower() for k in KEYWORDS_TOP3]:
         reply_content = filter_standings(full_report, "top3")
    elif keyword_lower in [k.lower() for k in KEYWORDS_TAIL3]:
         reply_content = filter_standings(full_report, "tail3")
