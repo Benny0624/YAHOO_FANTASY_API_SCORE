@@ -141,14 +141,6 @@ def _to_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return default
-    if keyword == "冠軍":
-        reply_content = filter_standings(full_report, "top3")
-    elif keyword == "後三名":
-        reply_content = filter_standings(full_report, "tail3")
-    else:  # 戰報
-        reply_content = full_report
-
-    reply_line_message(reply_token, reply_content)
 
 
 def fetch_yahoo_fantasy_data():
@@ -384,7 +376,7 @@ def test_line():
 
 
 @app.post("/line-webhook")
-async def line_webhook(request: Request):
+async def line_webhook(request: Request, background_tasks: BackgroundTasks)
     """
     LINE Bot 的 webhook URL。
     1. 幫忙撈出 LINE_TARGET_ID (印在 Render logs 裡)
