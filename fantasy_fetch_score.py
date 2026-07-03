@@ -127,7 +127,7 @@ def reply_keyword_task(reply_token: str, keyword: str):
     keyword_lower = keyword.lower()
     if keyword_lower in [k.lower() for k in KEYWORDS_TOP3]:
         reply_content = filter_standings(full_report, "top3")
-   elif keyword_lower in [k.lower() for k in KEYWORDS_TAIL3]:
+    elif keyword_lower in [k.lower() for k in KEYWORDS_TAIL3]:
         reply_content = filter_standings(full_report, "tail3")
     else:  # 戰報
         reply_content = full_report
