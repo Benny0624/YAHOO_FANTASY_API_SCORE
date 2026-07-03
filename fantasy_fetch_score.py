@@ -176,7 +176,7 @@ def fetch_yahoo_fantasy_data():
 
         # 5. 格式化成戰報文字
         report = f"🏆 Yahoo Fantasy 聯盟戰報 ({YAHOO_SPORT.upper()})\n"
-        report += "=" * 30 + "\n"
+        report += "=" * 20 + "\n"
         report += f"聯盟名稱：{settings.get('name', '未知')}\n"
         report += f"目前週次：Week {current_week}\n"
         report += f"更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
@@ -279,7 +279,7 @@ def filter_standings(full_report: str, mode: str) -> str:
         output.append("🥇 頒獎前三名 🥇")
     else:
         output.append("🤮 豆汁倒楣鬼 🤮")
-    output.append("=" * 30) # 加一條分隔線，比較美觀
+    output.append("=" * 20) # 加一條分隔線，比較美觀
 
     # 2. 找出所有排名資料行（只抓有隊伍名稱的那一行）
     team_names = []
