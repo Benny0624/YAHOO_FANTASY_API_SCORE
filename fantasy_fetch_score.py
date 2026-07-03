@@ -123,9 +123,11 @@ def reply_keyword_task(reply_token: str, keyword: str):
     init_yahoo_oauth_file()
     full_report = fetch_yahoo_fantasy_data()
 
-    if keyword in KEYWORDS_TOP3:
+    # 比對時轉小寫，確保英文關鍵字（如 top3）大小寫都能通
+    keyword_lower = keyword.lower()
+    if keyword_lower in [k.lower() for k in KEYWORDS_TOP3]::
         reply_content = filter_standings(full_report, "top3")
-    elif keyword in KEYWORDS_TAIL3:
+   elif keyword_lower in [k.lower() for k in KEYWORDS_TAIL3]:
         reply_content = filter_standings(full_report, "tail3")
     else:  # 戰報
         reply_content = full_report
@@ -384,15 +386,28 @@ def test_line():
 @app.post("/line-webhook")
 async def line_webhook(request: Request):
     """
-    LINE Bot 的 webhook URL。主要用途是幫忙撈出 LINE_TARGET_ID：
-    把 Bot 加入群組後，群組裡任何人傳訊息或有成員異動，LINE 都會打這支
-    endpoint，Render logs 會印出 groupId，複製貼到環境變數即可。
+    LINE Bot 的 webhook URL。
+    1. 幫忙撈出 LINE_TARGET_ID (印在 Render logs 裡)
+    2. 監聽關鍵字：輸入「前三名」、「後三名」或「戰報」自動回覆
     """
     body = await request.json()
     for event in body.get("events", []):
         source = event.get("source", {})
+        reply_token = event.get("replyToken")})
         print(f"📩 LINE webhook event: type={source.get('type')}, "
               f"groupId={source.get('groupId')}, userId={source.get('userId')}")
+        # 關鍵字觸發邏輯
+        if event.get("type") == "message" and event.get("message", {}).get("type") == "text" and reply_token:
+            user_text = event["message"]["text"].strip()
+            user_text_lower = user_text.lower()
+
+            # 合併所有支援的關鍵字清單
+            all_supported = KEYWORDS_TOP3 + KEYWORDS_TAIL3 + KEYWORDS_ALL
+            # 判斷使用者輸入是否符合任何一組關鍵字
+            if user_text_lower in [k.lower() for k in all_supported]:
+                # 使用 FastAPI 的 BackgroundTasks 在背景執行，防止 LINE 平台因 3 秒沒收到 200 OK 而判定逾時
+                background_tasks.add_task(reply_keyword_task, reply_token, user_text)
+                
     return JSONResponse(content={"status": "ok"})
 
 
