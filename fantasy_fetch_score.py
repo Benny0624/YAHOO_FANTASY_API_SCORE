@@ -335,6 +335,8 @@ def home():
         },
         "endpoints": {
             "Trigger Send Report": "/send-report",
+            "Get Top 3":           "/get-top3",
+            "Get Tail 3":          "/get-tail3",
             "Test LINE Push":      "/test-line",
             "LINE Webhook (取得 Group ID 用)": "/line-webhook"
         }
@@ -376,7 +378,7 @@ def test_line():
 
 
 @app.post("/line-webhook")
-async def line_webhook(request: Request, background_tasks: BackgroundTasks)
+async def line_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     LINE Bot 的 webhook URL。
     1. 幫忙撈出 LINE_TARGET_ID (印在 Render logs 裡)
