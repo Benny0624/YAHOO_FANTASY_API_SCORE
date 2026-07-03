@@ -270,14 +270,18 @@ def filter_standings(full_report: str, mode: str) -> str:
     """
     if "❌" in full_report or "錯誤" in full_report:
         return full_report
-        
+
     lines = full_report.split("\n")
     output = []
-            
-    # 找出所有排名資料行
-    # 原本格式範例：
-    # 🥇 1. 隊伍名稱
-    #     戰績 10-5（勝率 .667）落後 - 場
+
+    # 1. 根據模式直接設定新的標題，不保留舊標頭
+    if mode == "top3":
+        output.append("🥇 頒獎前三名 🥇")
+    else:
+        output.append("🤮 豆汁倒楣鬼 🤮")
+    output.append("=" * 30) # 加一條分隔線，比較美觀
+
+    # 2. 找出所有排名資料行
     standing_lines = []
     start_collect = False
     for line in lines:
@@ -288,28 +292,29 @@ def filter_standings(full_report: str, mode: str) -> str:
             # 遇到下一個區塊（例如對戰戰況）就停止收集
             if "⚔️" in line or "Match" in line:
                 break
-            standing_lines.append(line)
+            # 僅收集非空行，避免空行干擾配對
+            if line.strip():
+                standing_lines.append(line)
 
-    # 每一隊佔 2 行（隊伍名稱 + 戰績數據）
+    # 3. 每兩行配對成一隊（隊伍名稱 + 戰績數據）
     teams = []
     for i in range(0, len(standing_lines), 2):
         if i + 1 < len(standing_lines):
             teams.append((standing_lines[i], standing_lines[i+1]))
 
-    # 根據需求篩選
+    # 4. 根據需求篩選隊伍
     if mode == "top3":
         selected_teams = teams[:3]
-        output[0] = output[0].replace("聯盟戰報", "🥇頒獎前三名")
     else:  # tail3
         selected_teams = teams[-3:]
-        output[0] = output[0].replace("聯盟戰報", "🤮豆汁倒楣鬼")
-        
-    # 重新組合
+
+    # 5. 重新組合輸出
     for team_name_line, team_data_line in selected_teams:
         output.append(team_name_line)
         output.append(team_data_line)
         
     return "\n".join(output)
+
 # ==================== 4. API 路由設定 ====================
 
 @app.get("/")
