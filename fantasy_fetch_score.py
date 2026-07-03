@@ -281,40 +281,33 @@ def filter_standings(full_report: str, mode: str) -> str:
         output.append("🤮 豆汁倒楣鬼 🤮")
     output.append("=" * 30) # 加一條分隔線，比較美觀
 
-    # 2. 找出所有排名資料行
-    standing_lines = []
+    # 2. 找出所有排名資料行（只抓有隊伍名稱的那一行）
+    team_names = []
     start_collect = False
     for line in lines:
         if "📊 聯盟排名" in line:
             start_collect = True
             continue
         if start_collect:
-            # 遇到下一個區塊（例如對戰戰況）就停止收集
+            # 遇到下一個區塊就停止
             if "⚔️" in line or "Match" in line:
                 break
-            # 僅收集非空行，避免空行干擾配對
-            if line.strip():
-                standing_lines.append(line)
+            # 隊伍名稱那一行通常會帶有名次，例如 "🥇 1. 隊伍 A" 或 "　 4. 隊伍 B"
+            # 我們可以用正則表達式或簡單的字元判斷：只要包含 ". "（名次標示）就判定是隊伍名稱行
+            if ". " in line:
+                team_names.append(line.strip())
 
-    # 3. 每兩行配對成一隊（隊伍名稱 + 戰績數據）
-    teams = []
-    for i in range(0, len(standing_lines), 2):
-        if i + 1 < len(standing_lines):
-            teams.append((standing_lines[i], standing_lines[i+1]))
-
-    # 4. 根據需求篩選隊伍
+    # 3. 根據需求篩選隊伍名稱
     if mode == "top3":
-        selected_teams = teams[:3]
+        selected_teams = team_names[:3]
     else:  # tail3
-        selected_teams = teams[-3:]
+        selected_teams = team_names[-3:]
 
-    # 5. 重新組合輸出
-    for team_name_line, team_data_line in selected_teams:
-        output.append(team_name_line)
-        output.append(team_data_line)
+    # 4. 重新組合輸出
+    for team in selected_teams:
+        output.append(team)
         
     return "\n".join(output)
-
 # ==================== 4. API 路由設定 ====================
 
 @app.get("/")
