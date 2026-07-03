@@ -393,7 +393,7 @@ async def line_webhook(request: Request):
     body = await request.json()
     for event in body.get("events", []):
         source = event.get("source", {})
-        reply_token = event.get("replyToken")})
+        reply_token = event.get("replyToken")
         print(f"📩 LINE webhook event: type={source.get('type')}, "
               f"groupId={source.get('groupId')}, userId={source.get('userId')}")
         # 關鍵字觸發邏輯
