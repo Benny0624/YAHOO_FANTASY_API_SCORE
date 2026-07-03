@@ -273,12 +273,6 @@ def filter_standings(full_report: str, mode: str) -> str:
         
     lines = full_report.split("\n")
     output = []
-
-    # 保留標頭資訊（到 "📊 聯盟排名" 為止）
-    for line in lines:
-        output.append(line)
-        if "📊 聯盟排名" in line:
-            break
             
     # 找出所有排名資料行
     # 原本格式範例：
@@ -295,10 +289,6 @@ def filter_standings(full_report: str, mode: str) -> str:
             if "⚔️" in line or "Match" in line:
                 break
             standing_lines.append(line)
-
-    # 清理尾部空行
-    while standing_lines and standing_lines[-1].strip() == "":
-        standing_lines.pop()
 
     # 每一隊佔 2 行（隊伍名稱 + 戰績數據）
     teams = []
