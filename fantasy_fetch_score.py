@@ -22,6 +22,10 @@ YAHOO_SPORT = os.environ.get("YAHOO_SPORT", "mlb")
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_TARGET_ID            = os.environ.get("LINE_TARGET_ID", "")
 
+KEYWORDS_TOP3  = ["冠軍", "猛哥", "前三"]
+KEYWORDS_TAIL3 = ["豆汁", "墊底", "阿嬤都比你強"]
+KEYWORDS_ALL   = ["戰報", "戰爆"]
+
 # 將 Yahoo OAuth JSON 寫入暫存檔，供 yahoo_oauth 套件讀取
 OAUTH_FILE_PATH = "/tmp/oauth2.json"
 
@@ -46,6 +50,8 @@ init_yahoo_oauth_file()
 LINE_MAX_CHARS_PER_MESSAGE = 4900  # LINE 單則文字訊息上限 5000 字，留點餘裕
 LINE_MAX_MESSAGES_PER_PUSH = 5     # LINE push API 一次最多帶 5 則 message
 
+
+## group message 使用
 def send_line_message(text: str):
     if not LINE_CHANNEL_ACCESS_TOKEN:
         print("❌ 推播失敗：未設定 LINE_CHANNEL_ACCESS_TOKEN")
@@ -80,6 +86,52 @@ def send_line_message(text: str):
         print(f"❌ LINE 推播發生未預期錯誤: {e}")
         return False
 
+
+## 關鍵字推播使用
+def reply_line_message(reply_token: str, text: str):
+    if not LINE_CHANNEL_ACCESS_TOKEN:
+        print("❌ 回覆失敗：未設定 LINE_CHANNEL_ACCESS_TOKEN")
+        return False
+
+    chunks = [text[i:i + LINE_MAX_CHARS_PER_MESSAGE]
+              for i in range(0, len(text), LINE_MAX_CHARS_PER_MESSAGE)] or [text]
+    chunks = chunks[:LINE_MAX_MESSAGES_PER_PUSH]
+
+    try:
+        resp = requests.post(
+            "https://api.line.me/v2/bot/message/reply",
+            headers={
+                "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+                "Content-Type":  "application/json",
+            },
+            json={
+                "replyToken": reply_token,
+                "messages":   [{"type": "text", "text": chunk} for chunk in chunks],
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            print("📱 LINE 訊息成功回覆！")
+            return True
+        print(f"❌ LINE 回覆失敗 (HTTP {resp.status_code}): {resp.text}")
+        return False
+    except Exception as e:
+        print(f"❌ LINE 回覆發生未預期錯誤: {e}")
+        return False
+
+def reply_keyword_task(reply_token: str, keyword: str):
+    init_yahoo_oauth_file()
+    full_report = fetch_yahoo_fantasy_data()
+
+    if keyword in KEYWORDS_TOP3:
+        reply_content = filter_standings(full_report, "top3")
+    elif keyword in KEYWORDS_TAIL3:
+        reply_content = filter_standings(full_report, "tail3")
+    else:  # 戰報
+        reply_content = full_report
+
+    reply_line_message(reply_token, reply_content)
+
 # ==================== 3. Yahoo Fantasy API 抓取邏輯 ====================
 
 def _to_float(value, default=0.0):
@@ -87,6 +139,15 @@ def _to_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return default
+    if keyword == "冠軍":
+        reply_content = filter_standings(full_report, "top3")
+    elif keyword == "後三名":
+        reply_content = filter_standings(full_report, "tail3")
+    else:  # 戰報
+        reply_content = full_report
+
+    reply_line_message(reply_token, reply_content)
+
 
 def fetch_yahoo_fantasy_data():
     if not os.path.exists(OAUTH_FILE_PATH):
@@ -206,6 +267,65 @@ def fetch_yahoo_fantasy_data():
         return "❌ Yahoo OAuth Token 已過期且無法在伺服器環境中互動授權。請在本機重新執行授權流程，取得新的 oauth2.json（包含有效的 refresh_token）後更新 YAHOO_OAUTH_JSON 環境變數。"
     except Exception as e:
         return f"❌ 抓取 Yahoo Fantasy 資料時發生錯誤: {str(e)}"
+
+
+def filter_standings(full_report: str, mode: str) -> str:
+    """
+    輔助函式：從完整戰報中，過濾出前三名或後三名的純文字
+    mode: "top3" 或 "tail3"
+    """
+    if "❌" in full_report or "錯誤" in full_report:
+        return full_report
+        
+    lines = full_report.split("\n")
+    output = []
+
+    # 保留標頭資訊（到 "📊 聯盟排名" 為止）
+    for line in lines:
+        output.append(line)
+        if "📊 聯盟排名" in line:
+            break
+            
+    # 找出所有排名資料行
+    # 原本格式範例：
+    # 🥇 1. 隊伍名稱
+    #     戰績 10-5（勝率 .667）落後 - 場
+    standing_lines = []
+    start_collect = False
+    for line in lines:
+        if "📊 聯盟排名" in line:
+            start_collect = True
+            continue
+        if start_collect:
+            # 遇到下一個區塊（例如對戰戰況）就停止收集
+            if "⚔️" in line or "Match" in line:
+                break
+            standing_lines.append(line)
+
+    # 清理尾部空行
+    while standing_lines and standing_lines[-1].strip() == "":
+        standing_lines.pop()
+
+    # 每一隊佔 2 行（隊伍名稱 + 戰績數據）
+    teams = []
+    for i in range(0, len(standing_lines), 2):
+        if i + 1 < len(standing_lines):
+            teams.append((standing_lines[i], standing_lines[i+1]))
+
+    # 根據需求篩選
+    if mode == "top3":
+        selected_teams = teams[:3]
+        output[0] = output[0].replace("聯盟戰報", "🥇頒獎前三名")
+    else:  # tail3
+        selected_teams = teams[-3:]
+        output[0] = output[0].replace("聯盟戰報", "🤮豆汁倒楣鬼")
+        
+    # 重新組合
+    for team_name_line, team_data_line in selected_teams:
+        output.append(team_name_line)
+        output.append(team_data_line)
+        
+    return "\n".join(output)
 # ==================== 4. API 路由設定 ====================
 
 @app.get("/")
@@ -226,6 +346,29 @@ def home():
         }
     }
 
+@app.get("/get-top3")
+def get_top3():
+    """取得前三名"""
+    init_yahoo_oauth_file()
+    full_report = fetch_yahoo_fantasy_data()
+    top3_report = filter_standings(full_report, "top3")
+
+    if "❌" in top3_report or "錯誤" in top3_report:
+        return JSONResponse(status_code=500, content={"status": "Failed", "error": top3_report})
+    return JSONResponse(content={"status": "Success", "data": top3_report})
+
+
+@app.get("/get-tail3")
+def get_tail3():
+    """取得後三名"""
+    init_yahoo_oauth_file()
+    full_report = fetch_yahoo_fantasy_data()
+    tail3_report = filter_standings(full_report, "tail3")
+
+    if "❌" in tail3_report or "錯誤" in tail3_report:
+        return JSONResponse(status_code=500, content={"status": "Failed", "error": tail3_report})
+    return JSONResponse(content={"status": "Success", "data": tail3_report})
+
 
 @app.get("/test-line")
 def test_line():
@@ -235,6 +378,7 @@ def test_line():
     if ok:
         return JSONResponse(content={"status": "Success", "message": "測試訊息已推播，請檢查 LINE。"})
     return JSONResponse(status_code=500, content={"status": "Failed", "message": "推播失敗，請查看 Render logs 取得詳細錯誤。"})
+
 
 
 @app.post("/line-webhook")
