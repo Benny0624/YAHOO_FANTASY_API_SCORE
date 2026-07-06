@@ -346,19 +346,25 @@ def fetch_stat_leaders(keyword: str) -> str:
         print(f"teams_map: {teams_map}")
         batter_ids = []
         player_to_team = {} 
-        for p in taken_players:
-            print(f"player_id: {p.get("player_id")}")
-            print(f"position_type: {p.get("position_type")}")
-            print(f"status: {p.get("status")}")
-            if p.get("position_type") == "B" and p.get("player_id"):
-                p_id = int(p["player_id"])
-                batter_ids.append(p_id)
-                # p.get("status") 存放的是該球員所屬的 team_key (例如 '453.l.12345.t.1')
-                t_key = p.get("status")
-                player_to_team[p_id] = teams_map.get(t_key, "自由球員")
+        
+        for t_key, t_info in teams_data.items():
+            team_name = t_info.get("name", "未知隊伍")
+            try:
+                # 取得該隊伍的球員名單
+                team_obj = lg.to_team(t_key)
+                roster = team_obj.roster()
+                
+                for p in roster:
+                    # 過濾出打者 (B)
+                    if p.get("position_type") == "B" and p.get("player_id"):
+                        p_id = int(p["player_id"])
+                        batter_ids.append(p_id)
+                        player_to_team[p_id] = team_name
+            except Exception as e:
+                print(f"抓取隊伍 {team_name} 名單失敗: {e}")
+
         if not batter_ids:
             return "⚠️ 未在名單中找到任何打者。"
-
         # 3. 分批跟 Yahoo 查詢數據 (Yahoo 一次限制最多查 25 人)
         chunk_size = 25
         all_player_stats = []
