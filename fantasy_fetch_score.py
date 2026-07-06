@@ -341,14 +341,16 @@ def fetch_stat_leaders(keyword: str) -> str:
             return "⚠️ 目前聯盟中沒有已被選走的球員資料。"
 
         # 2. 過濾出打者 (Batter, 'B')
+        teams_map = {t_key: t_info.get("name") for t_key, t_info in lg.teams().items()}
         batter_ids = []
-        player_to_team = {}
+        player_to_team = {} 
         for p in taken_players:
             if p.get("position_type") == "B" and p.get("player_id"):
                 p_id = int(p["player_id"])
                 batter_ids.append(p_id)
-                player_to_team[p_id] = p.get("team_name", "自由球員")
-
+                # p.get("status") 存放的是該球員所屬的 team_key (例如 '453.l.12345.t.1')
+                t_key = p.get("status")
+                player_to_team[p_id] = teams_map.get(t_key, "自由球員")
         if not batter_ids:
             return "⚠️ 未在名單中找到任何打者。"
 
