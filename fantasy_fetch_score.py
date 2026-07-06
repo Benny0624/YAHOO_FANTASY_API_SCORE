@@ -25,6 +25,7 @@ LINE_TARGET_ID            = os.environ.get("LINE_TARGET_ID", "")
 KEYWORDS_TOP3  = ["冠軍", "猛哥", "前三"]
 KEYWORDS_TAIL3 = ["豆汁", "墊底", "阿嬤都比你強"]
 KEYWORDS_ALL   = ["戰報", "戰爆"]
+KEYWORDS_STATS = ["全壘打", "打點", "雙冠王", "打擊王", "hr", "rbi"]
 
 # 將 Yahoo OAuth JSON 寫入暫存檔，供 yahoo_oauth 套件讀取
 OAUTH_FILE_PATH = "/tmp/oauth2.json"
@@ -125,7 +126,9 @@ def reply_keyword_task(reply_token: str, keyword: str):
 
     # 比對時轉小寫，確保英文關鍵字（如 top3）大小寫都能通
     keyword_lower = keyword.lower()
-    if keyword_lower in [k.lower() for k in KEYWORDS_TOP3]:
+    if keyword_lower in [k.lower() for k in KEYWORDS_STATS]:
+        reply_content = fetch_stat_leaders(keyword_lower)
+    elif keyword_lower in [k.lower() for k in KEYWORDS_TOP3]:
         reply_content = filter_standings(full_report, "top3")
     elif keyword_lower in [k.lower() for k in KEYWORDS_TAIL3]:
         reply_content = filter_standings(full_report, "tail3")
@@ -308,6 +311,93 @@ def filter_standings(full_report: str, mode: str) -> str:
         output.append(team)
         
     return "\n".join(output)
+
+
+def fetch_stat_leaders(keyword: str) -> str:
+    """
+    抓取目前聯盟中所有已被選走打者的數據，並排出全壘打(HR)或打點(RBI)的前三名。
+    """
+
+    if not os.path.exists(OAUTH_FILE_PATH):
+        return "錯誤：找不到 Yahoo OAuth 憑證檔。"
+    try:
+        sc = OAuth2(None, None, from_file=OAUTH_FILE_PATH, browser_callback=None)
+        gm = yfa.Game(sc, YAHOO_SPORT)
+        league_id = YAHOO_LEAGUE_ID
+        if not league_id:
+            leagues = gm.league_ids()
+            if leagues:
+                league_id = leagues[0]
+            else:
+                return "錯誤：找不到任何聯盟資料。"
+
+        if "." not in str(league_id):
+            league_id = f"{gm.game_id()}.l.{league_id}"
+        lg = gm.to_league(league_id)
+
+        # 1. 取得聯盟內所有被選走的球員名單 
+        taken_players = lg.taken_players()
+        if not taken_players:
+            return "⚠️ 目前聯盟中沒有已被選走的球員資料。"
+
+        # 2. 過濾出打者 (Batter, 'B')
+        batter_ids = []
+        player_to_team = {}
+        for p in taken_players:
+            if p.get("position_type") == "B" and p.get("player_id"):
+                p_id = int(p["player_id"])
+                batter_ids.append(p_id)
+                player_to_team[p_id] = p.get("team_name", "自由球員")
+
+        if not batter_ids:
+            return "⚠️ 未在名單中找到任何打者。"
+
+        # 3. 分批跟 Yahoo 查詢數據 (Yahoo 一次限制最多查 25 人)
+        chunk_size = 25
+        all_player_stats = []
+        for i in range(0, len(batter_ids), chunk_size):
+            chunk = batter_ids[i:i + chunk_size]
+            try:
+                stats = lg.player_stats(chunk, "season")
+                all_player_stats.extend(stats)
+            except Exception as e:
+                print(f"分批抓取球員數據失敗: {e}")
+
+        # 4. 判斷想查哪種數據
+        show_hr = "hr" in keyword or "全壘打" in keyword or "雙冠王" in keyword or "打擊王" in keyword
+        show_rbi = "rbi" in keyword or "打點" in keyword or "雙冠王" in keyword or "打擊王" in keyword
+
+        report = f"📊 Yahoo Fantasy 數據排行榜 ({YAHOO_SPORT.upper()})\n"
+        report += "=" * 30 + "\n"
+
+        if show_hr:
+            hr_leaders = sorted(all_player_stats, key=lambda x: _to_float(x.get("HR", 0)), reverse=True)[:3]
+            report += "🔥 【全壘打王排行榜 (HR)】\n"
+            medals = ["🥇", "🥈", "🥉"]
+
+            for idx, p in enumerate(hr_leaders):
+                p_id = p.get("player_id")
+                team_name = player_to_team.get(p_id, "Free Agent 快搶💪")
+                report += f"{medals[idx]} {p.get('name', '未知')} ({team_name}) — {p.get('HR', 0)} HR\n"
+            report += "\n"
+
+        if show_rbi:
+            rbi_leaders = sorted(all_player_stats, key=lambda x: _to_float(x.get("RBI", 0)), reverse=True)[:3]
+            report += "💪 【打點王排行榜 (RBI)】\n"
+
+            medals = ["🥇", "🥈", "🥉"]
+            for idx, p in enumerate(rbi_leaders):
+                p_id = p.get("player_id")
+                team_name = player_to_team.get(p_id, "Free Agent 快搶💪")
+                report += f"{medals[idx]} {p.get('name', '未知')} ({team_name}) — {p.get('RBI', 0)} RBI\n"
+
+            report += "\n"
+
+        report += f"更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        return report
+
+    except Exception as e:
+        return f"❌ 抓取數據排行榜失敗: {str(e)}"
 # ==================== 4. API 路由設定 ====================
 
 @app.get("/")
