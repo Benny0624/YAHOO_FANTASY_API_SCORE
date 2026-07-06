@@ -304,6 +304,11 @@ def fetch_stat_leaders(keyword: str) -> str:
         batter_stats = fetch_stats(batter_ids)
         pitcher_stats = fetch_stats(pitcher_ids)
 
+        # 除錯用：印出一筆投手原始數據，確認 Yahoo 實際回傳的欄位名稱
+        # （之前誤判 SV+HLD 的欄位名，這次先印出來確認再改，之後可以拿掉）
+        if pitcher_stats:
+            print(f"🔍 sample pitcher stat keys: {pitcher_stats[0]}")
+
         # 4. 判斷想查哪些指標
         if keyword in COMBO_STAT_KEYWORDS:
             target_stats = COMBO_STAT_KEYWORDS[keyword]
