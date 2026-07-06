@@ -235,7 +235,8 @@ def fetch_stat_leaders(keyword: str) -> str:
             return "⚠️ 目前聯盟中沒有已被選走的球員資料。"
 
         # 2. 過濾出打者 (Batter, 'B')
-        teams_map = {t_key: t_info.get("name") for t_key, t_info in lg.teams().items()}
+        teams_data = lg.teams()
+        teams_map = {t_key: t_info.get("name") for t_key, t_info in teams_data.items()}
         print(f"teams_map: {teams_map}")
         batter_ids = []
         player_to_team = {}
