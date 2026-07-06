@@ -337,14 +337,19 @@ def fetch_stat_leaders(keyword: str) -> str:
 
         # 1. 取得聯盟內所有被選走的球員名單 
         taken_players = lg.taken_players()
+        print(f"taken_players: {taken_players}")
         if not taken_players:
             return "⚠️ 目前聯盟中沒有已被選走的球員資料。"
 
         # 2. 過濾出打者 (Batter, 'B')
         teams_map = {t_key: t_info.get("name") for t_key, t_info in lg.teams().items()}
+        print(f"teams_map: {teams_map}")
         batter_ids = []
         player_to_team = {} 
         for p in taken_players:
+            print(f"player_id: {p.get("player_id")}")
+            print(f"position_type: {p.get("position_type")}")
+            print(f"status: {p.get("status")}")
             if p.get("position_type") == "B" and p.get("player_id"):
                 p_id = int(p["player_id"])
                 batter_ids.append(p_id)
