@@ -206,9 +206,33 @@ def filter_standings(full_report: str, mode: str) -> str:
     return "\n".join(output)
 
 
+# 本聯盟計分指標（打擊 6 項 + 投球 6 項）與觸發用的口語化關鍵字
+# reverse=True 代表數值越高越好（由大到小排序）；False 代表數值越低越好（例如 ERA、WHIP）
+STAT_CONFIG = {
+    "R":      {"label": "得分王",     "position_type": "B", "reverse": True,  "keywords": ["得分", "r"]},
+    "HR":     {"label": "全壘打王",   "position_type": "B", "reverse": True,  "keywords": ["全壘打", "hr"]},
+    "RBI":    {"label": "打點王",     "position_type": "B", "reverse": True,  "keywords": ["打點", "rbi"]},
+    "SB":     {"label": "盜壘王",     "position_type": "B", "reverse": True,  "keywords": ["盜壘", "sb"]},
+    "OBP":    {"label": "上壘率王",   "position_type": "B", "reverse": True,  "keywords": ["上壘率", "obp"]},
+    "OPS":    {"label": "OPS王",     "position_type": "B", "reverse": True,  "keywords": ["ops", "攻擊指數"]},
+    "QS":     {"label": "優質先發王", "position_type": "P", "reverse": True,  "keywords": ["優質先發", "qs"]},
+    "SV+HLD": {"label": "中繼救援王", "position_type": "P", "reverse": True,  "keywords": ["中繼", "救援", "sv", "hld"]},
+    "K":      {"label": "三振王",     "position_type": "P", "reverse": True,  "keywords": ["三振", "k"]},
+    "ERA":    {"label": "防禦率王",   "position_type": "P", "reverse": False, "keywords": ["防禦率", "era"]},
+    "WHIP":   {"label": "WHIP王",    "position_type": "P", "reverse": False, "keywords": ["whip"]},
+    "K/BB":   {"label": "控球王",     "position_type": "P", "reverse": True,  "keywords": ["控球", "k/bb"]},
+}
+
+# 組合關鍵字：一次觸發多項指標的排行榜
+COMBO_STAT_KEYWORDS = {
+    "雙冠王": ["HR", "RBI"],
+    "打擊王": ["HR", "RBI"],
+}
+
+
 def fetch_stat_leaders(keyword: str) -> str:
     """
-    抓取目前聯盟中所有已被選走打者的數據，並排出全壘打(HR)或打點(RBI)的前三名。
+    抓取目前聯盟中所有已被選走球員的數據，依關鍵字對應到 STAT_CONFIG 的指標排出前三名。
     """
 
     if not os.path.exists(OAUTH_FILE_PATH):
@@ -234,11 +258,11 @@ def fetch_stat_leaders(keyword: str) -> str:
         if not taken_players:
             return "⚠️ 目前聯盟中沒有已被選走的球員資料。"
 
-        # 2. 過濾出打者 (Batter, 'B')
+        # 2. 依位置分成打者 / 投手兩組（打擊指標只在打者裡排，投球指標只在投手裡排）
         teams_data = lg.teams()
         teams_map = {t_key: t_info.get("name") for t_key, t_info in teams_data.items()}
         print(f"teams_map: {teams_map}")
-        batter_ids = []
+        batter_ids, pitcher_ids = [], []
         player_to_team = {}
 
         for t_key, t_info in teams_data.items():
@@ -249,54 +273,57 @@ def fetch_stat_leaders(keyword: str) -> str:
                 roster = team_obj.roster()
 
                 for p in roster:
-                    # 過濾出打者 (B)
-                    if p.get("position_type") == "B" and p.get("player_id"):
-                        p_id = int(p["player_id"])
+                    if not p.get("player_id"):
+                        continue
+                    p_id = int(p["player_id"])
+                    player_to_team[p_id] = team_name
+                    if p.get("position_type") == "B":
                         batter_ids.append(p_id)
-                        player_to_team[p_id] = team_name
+                    elif p.get("position_type") == "P":
+                        pitcher_ids.append(p_id)
             except Exception as e:
                 print(f"抓取隊伍 {team_name} 名單失敗: {e}")
 
-        if not batter_ids:
-            return "⚠️ 未在名單中找到任何打者。"
-        # 3. 分批跟 Yahoo 查詢數據 (Yahoo 一次限制最多查 25 人)
-        chunk_size = 25
-        all_player_stats = []
-        for i in range(0, len(batter_ids), chunk_size):
-            chunk = batter_ids[i:i + chunk_size]
-            try:
-                stats = lg.player_stats(chunk, "season")
-                all_player_stats.extend(stats)
-            except Exception as e:
-                print(f"分批抓取球員數據失敗: {e}")
+        if not batter_ids and not pitcher_ids:
+            return "⚠️ 未在名單中找到任何球員。"
 
-        # 4. 判斷想查哪種數據
-        show_hr = "hr" in keyword or "全壘打" in keyword or "雙冠王" in keyword or "打擊王" in keyword
-        show_rbi = "rbi" in keyword or "打點" in keyword or "雙冠王" in keyword or "打擊王" in keyword
+        # 3. 分批跟 Yahoo 查詢數據 (Yahoo 一次限制最多查 25 人)
+        def fetch_stats(player_ids):
+            chunk_size = 25
+            results = []
+            for i in range(0, len(player_ids), chunk_size):
+                chunk = player_ids[i:i + chunk_size]
+                try:
+                    results.extend(lg.player_stats(chunk, "season"))
+                except Exception as e:
+                    print(f"分批抓取球員數據失敗: {e}")
+            return results
+
+        batter_stats = fetch_stats(batter_ids)
+        pitcher_stats = fetch_stats(pitcher_ids)
+
+        # 4. 判斷想查哪些指標
+        if keyword in COMBO_STAT_KEYWORDS:
+            target_stats = COMBO_STAT_KEYWORDS[keyword]
+        else:
+            target_stats = [stat for stat, cfg in STAT_CONFIG.items() if keyword in cfg["keywords"]]
+
+        if not target_stats:
+            return "⚠️ 沒有找到對應的數據指標。"
 
         report = f"📊 Yahoo Fantasy 數據排行榜 ({YAHOO_SPORT.upper()})\n"
-        report += "=" * 0 + "\n"
-        if show_hr:
-            hr_leaders = sorted(all_player_stats, key=lambda x: _to_float(x.get("HR", 0)), reverse=True)[:3]
-            report += "🔥 【全壘打王排行榜 (HR)】\n"
-            medals = ["🥇", "🥈", "🥉"]
+        medals = ["🥇", "🥈", "🥉"]
 
-            for idx, p in enumerate(hr_leaders):
+        for stat in target_stats:
+            cfg = STAT_CONFIG[stat]
+            pool = batter_stats if cfg["position_type"] == "B" else pitcher_stats
+            leaders = sorted(pool, key=lambda x: _to_float(x.get(stat, 0)), reverse=cfg["reverse"])[:3]
+
+            report += f"🔥 【{cfg['label']} ({stat})】\n"
+            for idx, p in enumerate(leaders):
                 p_id = p.get("player_id")
                 team_name = player_to_team.get(p_id, "Free Agent 快搶💪")
-                report += f"{medals[idx]} {p.get('name', '未知')} ({team_name}) — {p.get('HR', 0)} HR\n"
-            report += "\n"
-
-        if show_rbi:
-            rbi_leaders = sorted(all_player_stats, key=lambda x: _to_float(x.get("RBI", 0)), reverse=True)[:3]
-            report += "💪 【打點王排行榜 (RBI)】\n"
-
-            medals = ["🥇", "🥈", "🥉"]
-            for idx, p in enumerate(rbi_leaders):
-                p_id = p.get("player_id")
-                team_name = player_to_team.get(p_id, "Free Agent 快搶💪")
-                report += f"{medals[idx]} {p.get('name', '未知')} ({team_name}) — {p.get('RBI', 0)} RBI\n"
-
+                report += f"{medals[idx]} {p.get('name', '未知')} ({team_name}) — {p.get(stat, 0)} {stat}\n"
             report += "\n"
 
         report += f"更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}"
