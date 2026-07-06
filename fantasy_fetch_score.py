@@ -381,8 +381,7 @@ def fetch_stat_leaders(keyword: str) -> str:
         show_rbi = "rbi" in keyword or "打點" in keyword or "雙冠王" in keyword or "打擊王" in keyword
 
         report = f"📊 Yahoo Fantasy 數據排行榜 ({YAHOO_SPORT.upper()})\n"
-        report += "=" * 30 + "\n"
-
+        report += "=" * 0 + "\n"
         if show_hr:
             hr_leaders = sorted(all_player_stats, key=lambda x: _to_float(x.get("HR", 0)), reverse=True)[:3]
             report += "🔥 【全壘打王排行榜 (HR)】\n"
