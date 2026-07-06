@@ -208,19 +208,21 @@ def filter_standings(full_report: str, mode: str) -> str:
 
 # 本聯盟計分指標（打擊 6 項 + 投球 6 項）與觸發用的口語化關鍵字
 # reverse=True 代表數值越高越好（由大到小排序）；False 代表數值越低越好（例如 ERA、WHIP）
+# keys：Yahoo player_stats() 實際回傳的欄位名稱。大多數指標欄位名稱跟指標本身同名，
+# 但 Yahoo 沒有原生的 "SV+HLD" 欄位，只有分開的 SV 跟 HLD，所以這項要用兩個欄位加總。
 STAT_CONFIG = {
-    "R":      {"label": "得分王",     "position_type": "B", "reverse": True,  "keywords": ["得分", "r"]},
-    "HR":     {"label": "全壘打王",   "position_type": "B", "reverse": True,  "keywords": ["全壘打", "hr"]},
-    "RBI":    {"label": "打點王",     "position_type": "B", "reverse": True,  "keywords": ["打點", "rbi"]},
-    "SB":     {"label": "盜壘王",     "position_type": "B", "reverse": True,  "keywords": ["盜壘", "sb"]},
-    "OBP":    {"label": "上壘率王",   "position_type": "B", "reverse": True,  "keywords": ["上壘率", "obp"]},
-    "OPS":    {"label": "OPS王",     "position_type": "B", "reverse": True,  "keywords": ["ops", "攻擊指數"]},
-    "QS":     {"label": "優質先發王", "position_type": "P", "reverse": True,  "keywords": ["優質先發", "qs"]},
-    "SV+HLD": {"label": "中繼救援王", "position_type": "P", "reverse": True,  "keywords": ["中繼", "救援", "sv", "hld"]},
-    "K":      {"label": "三振王",     "position_type": "P", "reverse": True,  "keywords": ["三振", "k"]},
-    "ERA":    {"label": "防禦率王",   "position_type": "P", "reverse": False, "keywords": ["防禦率", "era"]},
-    "WHIP":   {"label": "WHIP王",    "position_type": "P", "reverse": False, "keywords": ["whip"]},
-    "K/BB":   {"label": "控球王",     "position_type": "P", "reverse": True,  "keywords": ["控球", "k/bb"]},
+    "R":      {"label": "得分王",     "position_type": "B", "reverse": True,  "keys": ["R"],       "keywords": ["得分", "r"]},
+    "HR":     {"label": "全壘打王",   "position_type": "B", "reverse": True,  "keys": ["HR"],      "keywords": ["全壘打", "hr"]},
+    "RBI":    {"label": "打點王",     "position_type": "B", "reverse": True,  "keys": ["RBI"],     "keywords": ["打點", "rbi"]},
+    "SB":     {"label": "盜壘王",     "position_type": "B", "reverse": True,  "keys": ["SB"],      "keywords": ["盜壘", "sb"]},
+    "OBP":    {"label": "上壘率王",   "position_type": "B", "reverse": True,  "keys": ["OBP"],     "keywords": ["上壘率", "obp"]},
+    "OPS":    {"label": "OPS王",     "position_type": "B", "reverse": True,  "keys": ["OPS"],     "keywords": ["ops", "攻擊指數"]},
+    "QS":     {"label": "優質先發王", "position_type": "P", "reverse": True,  "keys": ["QS"],      "keywords": ["優質先發", "qs"]},
+    "SV+HLD": {"label": "中繼救援王", "position_type": "P", "reverse": True,  "keys": ["SV", "HLD"], "keywords": ["中繼", "救援", "sv", "hld"]},
+    "K":      {"label": "三振王",     "position_type": "P", "reverse": True,  "keys": ["K"],       "keywords": ["三振", "k"]},
+    "ERA":    {"label": "防禦率王",   "position_type": "P", "reverse": False, "keys": ["ERA"],     "keywords": ["防禦率", "era"]},
+    "WHIP":   {"label": "WHIP王",    "position_type": "P", "reverse": False, "keys": ["WHIP"],    "keywords": ["whip"]},
+    "K/BB":   {"label": "控球王",     "position_type": "P", "reverse": True,  "keys": ["K/BB"],    "keywords": ["控球", "k/bb"]},
 }
 
 # 組合關鍵字：一次觸發多項指標的排行榜
@@ -317,13 +319,23 @@ def fetch_stat_leaders(keyword: str) -> str:
         for stat in target_stats:
             cfg = STAT_CONFIG[stat]
             pool = batter_stats if cfg["position_type"] == "B" else pitcher_stats
-            leaders = sorted(pool, key=lambda x: _to_float(x.get(stat, 0)), reverse=cfg["reverse"])[:3]
+
+            def stat_value(player, cfg=cfg):
+                return sum(_to_float(player.get(k, 0)) for k in cfg["keys"])
+
+            leaders = sorted(pool, key=stat_value, reverse=cfg["reverse"])[:3]
 
             report += f"🔥 【{cfg['label']} ({stat})】\n"
             for idx, p in enumerate(leaders):
                 p_id = p.get("player_id")
                 team_name = player_to_team.get(p_id, "Free Agent 快搶💪")
-                report += f"{medals[idx]} {p.get('name', '未知')} ({team_name}) — {p.get(stat, 0)} {stat}\n"
+                # 單一欄位直接顯示原始值 (保留 Yahoo 回傳格式，例如 ERA 的小數點)；
+                # 多欄位加總的指標 (SV+HLD) 顯示計算後的總和
+                if len(cfg["keys"]) == 1:
+                    value_display = p.get(cfg["keys"][0], 0)
+                else:
+                    value_display = f"{stat_value(p):.0f}"
+                report += f"{medals[idx]} {p.get('name', '未知')} ({team_name}) — {value_display} {stat}\n"
             report += "\n"
 
         report += f"更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}"
