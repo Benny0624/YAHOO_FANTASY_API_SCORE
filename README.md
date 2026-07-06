@@ -6,14 +6,49 @@
 
 ## 架構
 
-```
-GET /send-report
-  └─ fetch_yahoo_fantasy_data()   # 呼叫 Yahoo Fantasy API
-  └─ send_line_message()           # 透過 LINE Messaging API 推播（背景執行）
+程式碼分成三個檔案：
 
-GET /test-line                     # 同步推播一則測試訊息，確認設定正確
-POST /line-webhook                  # LINE Bot webhook，用來撈出群組的 LINE_TARGET_ID
 ```
+fantasy_fetch_score.py   # FastAPI app + 路由，只負責串接，不含業務邏輯
+yahoo_service.py          # Yahoo Fantasy API 抓取邏輯（戰報、排名、數據排行榜）
+line_service.py           # LINE 推播 / 回覆 / 關鍵字比對邏輯
+```
+
+```
+GET  /send-report        # fetch_yahoo_fantasy_data() 抓完整戰報 → send_line_message() 推播到群組（背景執行）
+GET  /get-top3           # 回傳目前排名前三名（JSON）
+GET  /get-tail3          # 回傳目前排名後三名（JSON）
+GET  /test-line          # 同步推播一則測試訊息，確認設定正確
+POST /line-webhook       # LINE Bot webhook：撈群組的 LINE_TARGET_ID + 監聽關鍵字自動回覆
+```
+
+### LINE 群組關鍵字
+
+在群組裡打出以下任一關鍵字（一字不差、單獨傳送），Bot 會自動回覆：
+
+**戰況類**
+- `戰報`、`戰爆` → 完整戰報（排名 + 本週對戰）
+- `冠軍`、`猛哥`、`前三` → 目前排名前三名
+- `豆汁`、`墊底`、`阿嬤都比你強` → 目前排名後三名
+
+**數據排行榜（打擊 6 項）**
+- `得分`、`r` → 得分王 (R)
+- `全壘打`、`hr` → 全壘打王 (HR)
+- `打點`、`rbi` → 打點王 (RBI)
+- `盜壘`、`sb` → 盜壘王 (SB)
+- `上壘率`、`obp` → 上壘率王 (OBP)
+- `ops`、`攻擊指數` → OPS 王
+- `雙冠王`、`打擊王` → 全壘打王 + 打點王（一次看兩項）
+
+**數據排行榜（投球 6 項）**
+- `優質先發`、`qs` → 優質先發王 (QS)
+- `中繼`、`救援`、`sv`、`hld` → 中繼救援王 (SV+HLD)
+- `三振`、`k` → 三振王 (K)
+- `防禦率`、`era` → 防禦率王 (ERA，越低越好)
+- `whip` → WHIP 王（越低越好）
+- `控球`、`k/bb` → 控球王 (K/BB)
+
+排行榜都只列前三名，附上所屬隊伍；查不到人選的位置顯示「Free Agent 快搶💪」。指標與關鍵字清單定義在 `yahoo_service.py` 的 `STAT_CONFIG` / `COMBO_STAT_KEYWORDS`，新增指標只要改那裡，`line_service.py` 的 `KEYWORDS_STATS` 會自動一起更新。
 
 ---
 
@@ -187,7 +222,7 @@ GitHub Repo → **Settings** → **Secrets and variables** → **Actions** → *
 
 ### 2. 確認 Workflow 檔案已存在
 
-`.github/workflows/daily-report.yml` 已設定每天 UTC 12:00（台灣時間 20:00）自動觸發。
+`.github/workflows/daily-report.yml` 已設定每天 UTC 04:45（台灣時間 12:45）自動觸發。
 
 ### 3. 手動測試
 
