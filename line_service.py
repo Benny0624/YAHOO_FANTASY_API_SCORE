@@ -6,6 +6,8 @@ from yahoo_service import (
     fetch_yahoo_fantasy_data,
     fetch_stat_leaders,
     filter_standings,
+    STAT_CONFIG,
+    COMBO_STAT_KEYWORDS,
 )
 
 # ==================== 環境變數 ====================
@@ -15,7 +17,10 @@ LINE_TARGET_ID            = os.environ.get("LINE_TARGET_ID", "")
 KEYWORDS_TOP3  = ["冠軍", "猛哥", "前三"]
 KEYWORDS_TAIL3 = ["豆汁", "墊底", "阿嬤都比你強"]
 KEYWORDS_ALL   = ["戰報", "戰爆"]
-KEYWORDS_STATS = ["全壘打", "打點", "雙冠王", "打擊王", "hr", "rbi"]
+# 直接從 STAT_CONFIG / COMBO_STAT_KEYWORDS 匯總，避免兩邊清單長出來不同步
+KEYWORDS_STATS = sorted(
+    {kw for cfg in STAT_CONFIG.values() for kw in cfg["keywords"]} | set(COMBO_STAT_KEYWORDS.keys())
+)
 
 # ==================== LINE 推播函數 ====================
 
