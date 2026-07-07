@@ -218,7 +218,7 @@ STAT_CONFIG = {
     "OBP":    {"label": "上壘率王",   "position_type": "B", "reverse": True,  "keys": ["OBP"],     "keywords": ["上壘率", "obp"]},
     "OPS":    {"label": "OPS王",     "position_type": "B", "reverse": True,  "keys": ["OPS"],     "keywords": ["ops", "攻擊指數"]},
     "QS":     {"label": "優質先發王", "position_type": "P", "reverse": True,  "keys": ["QS"],      "keywords": ["優質先發", "qs"]},
-    "SV+H": {"label": "中繼救援王", "position_type": "P", "reverse": True,  "keys": ["SV", "HLD"], "keywords": ["中繼", "救援", "sv", "hld"]},
+    "SV+H": {"label": "中繼救援王", "position_type": "P", "reverse": True,  "keys": ["SV+H"], "keywords": ["中繼", "救援", "sv", "hld"]},
     "K":      {"label": "三振王",     "position_type": "P", "reverse": True,  "keys": ["K"],       "keywords": ["三振", "k"]},
     "ERA":    {"label": "防禦率王",   "position_type": "P", "reverse": False, "keys": ["ERA"],     "keywords": ["防禦率", "era"]},
     "WHIP":   {"label": "WHIP王",    "position_type": "P", "reverse": False, "keys": ["WHIP"],    "keywords": ["whip"]},
@@ -330,7 +330,7 @@ def fetch_stat_leaders(keyword: str) -> str:
                 p_id = p.get("player_id")
                 team_name = player_to_team.get(p_id, "Free Agent 快搶💪")
                 # 單一欄位直接顯示原始值 (保留 Yahoo 回傳格式，例如 ERA 的小數點)；
-                # 多欄位加總的指標 (SV+HLD) 顯示計算後的總和
+                # 多欄位加總的指標 顯示計算後的總和
                 if len(cfg["keys"]) == 1:
                     value_display = p.get(cfg["keys"][0], 0)
                 else:
