@@ -218,7 +218,7 @@ STAT_CONFIG = {
     "OBP":    {"label": "上壘率王",   "position_type": "B", "reverse": True,  "keys": ["OBP"],     "keywords": ["上壘率", "obp"]},
     "OPS":    {"label": "OPS王",     "position_type": "B", "reverse": True,  "keys": ["OPS"],     "keywords": ["ops", "攻擊指數"]},
     "QS":     {"label": "優質先發王", "position_type": "P", "reverse": True,  "keys": ["QS"],      "keywords": ["優質先發", "qs"]},
-    "SV+HLD": {"label": "中繼救援王", "position_type": "P", "reverse": True,  "keys": ["SV", "HLD"], "keywords": ["中繼", "救援", "sv", "hld"]},
+    "SV+H": {"label": "中繼救援王", "position_type": "P", "reverse": True,  "keys": ["SV", "HLD"], "keywords": ["中繼", "救援", "sv", "hld"]},
     "K":      {"label": "三振王",     "position_type": "P", "reverse": True,  "keys": ["K"],       "keywords": ["三振", "k"]},
     "ERA":    {"label": "防禦率王",   "position_type": "P", "reverse": False, "keys": ["ERA"],     "keywords": ["防禦率", "era"]},
     "WHIP":   {"label": "WHIP王",    "position_type": "P", "reverse": False, "keys": ["WHIP"],    "keywords": ["whip"]},
@@ -303,11 +303,6 @@ def fetch_stat_leaders(keyword: str) -> str:
 
         batter_stats = fetch_stats(batter_ids)
         pitcher_stats = fetch_stats(pitcher_ids)
-
-        # 除錯用：印出一筆投手原始數據，確認 Yahoo 實際回傳的欄位名稱
-        # （之前誤判 SV+HLD 的欄位名，這次先印出來確認再改，之後可以拿掉）
-        if pitcher_stats:
-            print(f"🔍 sample pitcher stat keys: {pitcher_stats[0]}")
 
         # 4. 判斷想查哪些指標
         if keyword in COMBO_STAT_KEYWORDS:
