@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
@@ -23,7 +25,15 @@ from line_service import (
     reply_keyword_task,
 )
 
-app = FastAPI(title="Yahoo Fantasy API & LINE Mailer")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Render 免費方案閒置後會休眠，服務被喚醒/重啟時在群組發一句提示，
+    # 這樣大家看到 bot 沒馬上回應時知道是在熱身，不用一直 ping 保活
+    send_line_message("🤖 服務剛啟動，正在熱身中，稍等一下再打指令喔～")
+    yield
+
+
+app = FastAPI(title="Yahoo Fantasy API & LINE Mailer", lifespan=lifespan)
 
 # ==================== API 路由設定 ====================
 
