@@ -227,8 +227,10 @@ def fetch_standings_report():
 
 
 def fetch_live_standings_report():
-    """即時排名：把本週目前戰況（team_points.total 領先方）暫記一勝，推算「假設現在收官」的排名，
-    並在每隊後面附上本週目前累計分數。"""
+    """即時排名（Head-to-Head Categories 專用）：本聯盟排名是看全季累計「贏過的類別總數」，
+    不是週對戰的勝負場次。team_points.total 在類別制聯盟裡代表「目前這週贏過的類別數」
+    （不是連續分數），所以直接把它累加進季賽總類別勝場，其餘（總類別數 - 雙方贏的類別數）
+    算平手類別，藉此推算「假設現在收官」的即時排名。"""
     lg, err = _connect_league()
     if err:
         return err
@@ -237,8 +239,9 @@ def fetch_live_standings_report():
         standings = lg.standings()
         current_week = lg.current_week()
         matchups = _parse_current_matchups(lg.matchups())
+        total_categories = len(STAT_CONFIG)  # 本聯盟共 12 個計分類別
 
-        # 1. 用 team_key 建立可變戰績表
+        # 1. 用 team_key 建立可變戰績表（單位是「類別數」，不是「場次」）
         records = {}
         for team in standings:
             t_key = team.get("team_key") or team.get("name")
@@ -251,24 +254,24 @@ def fetch_live_standings_report():
                 "live_score": None,
             }
 
-        # 2. 套用本週即時戰況：目前領先方暫記 +1 勝，落後方 +1 敗，平手則各 +1 和
+        # 2. 套用本週即時戰況：雙方目前贏的類別數直接加進季賽累計，
+        #    剩下的類別（尚未分出勝負或本來就平手）算進 ties
         for m in matchups:
             k1, k2 = m["t1_key"], m["t2_key"]
             if k1 not in records or k2 not in records:
                 continue
             records[k1]["live_score"] = m["t1_score"]
             records[k2]["live_score"] = m["t2_score"]
-            if m["t1_score"] > m["t2_score"]:
-                records[k1]["wins"] += 1
-                records[k2]["losses"] += 1
-            elif m["t2_score"] > m["t1_score"]:
-                records[k2]["wins"] += 1
-                records[k1]["losses"] += 1
-            else:
-                records[k1]["ties"] += 1
-                records[k2]["ties"] += 1
 
-        # 3. 重新計算勝率、依勝率排序
+            cats_tied = max(total_categories - m["t1_score"] - m["t2_score"], 0)
+            records[k1]["wins"] += m["t1_score"]
+            records[k1]["losses"] += m["t2_score"]
+            records[k1]["ties"] += cats_tied
+            records[k2]["wins"] += m["t2_score"]
+            records[k2]["losses"] += m["t1_score"]
+            records[k2]["ties"] += cats_tied
+
+        # 3. 重新計算勝率、依勝率排序（跟 Yahoo 官方排名同一套邏輯，只是類別數多算了本週進行中的部分）
         for r in records.values():
             total = r["wins"] + r["losses"] + r["ties"]
             r["win_pct"] = (r["wins"] + 0.5 * r["ties"]) / total if total else 0.0
@@ -284,7 +287,7 @@ def fetch_live_standings_report():
             medal = medals[idx - 1] if idx <= 3 else "　"
             wins_i, losses_i, ties_i = int(r["wins"]), int(r["losses"]), int(r["ties"])
             record = f"{wins_i}-{losses_i}" + (f"-{ties_i}" if ties_i else "")
-            score_note = f"[本週 {r['live_score']:.1f} 分]" if r["live_score"] is not None else ""
+            score_note = f"[本週目前贏 {int(r['live_score'])}/{total_categories} 類]" if r["live_score"] is not None else ""
             report += f"{medal} {idx}. {r['name']}（{record}，勝率 {r['win_pct']:.3f}）{score_note}\n"
 
         report += f"\n更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}"
