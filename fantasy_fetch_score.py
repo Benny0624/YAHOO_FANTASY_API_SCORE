@@ -19,6 +19,8 @@ from line_service import (
     KEYWORDS_TAIL3,
     KEYWORDS_ALL,
     KEYWORDS_STATS,
+    KEYWORDS_STANDINGS,
+    KEYWORDS_LIVE_STANDINGS,
     send_line_message,
     reply_keyword_task,
 )
@@ -101,7 +103,10 @@ async def line_webhook(request: Request, background_tasks: BackgroundTasks):
             user_text_lower = user_text.lower()
 
             # 合併所有支援的關鍵字清單
-            all_supported = KEYWORDS_TOP3 + KEYWORDS_TAIL3 + KEYWORDS_ALL + KEYWORDS_STATS
+            all_supported = (
+                KEYWORDS_TOP3 + KEYWORDS_TAIL3 + KEYWORDS_ALL + KEYWORDS_STATS
+                + KEYWORDS_STANDINGS + KEYWORDS_LIVE_STANDINGS
+            )
             # 判斷使用者輸入是否符合任何一組關鍵字
             if user_text_lower in [k.lower() for k in all_supported]:
                 # 使用 FastAPI 的 BackgroundTasks 在背景執行，防止 LINE 平台因 3 秒沒收到 200 OK 而判定逾時
