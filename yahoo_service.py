@@ -39,17 +39,18 @@ def _to_float(value, default=0.0):
         return default
 
 
-def fetch_yahoo_fantasy_data():
+def _connect_league():
+    """建立 Yahoo League 物件。成功回傳 (lg, None)，失敗回傳 (None, 錯誤訊息文字)。"""
     if not os.path.exists(OAUTH_FILE_PATH):
-        return "錯誤：找不到 Yahoo OAuth 憑證檔，請確認環境變數 YAHOO_OAUTH_JSON 是否正確。"
+        return None, "錯誤：找不到 Yahoo OAuth 憑證檔，請確認環境變數 YAHOO_OAUTH_JSON 是否正確。"
 
     try:
         with open(OAUTH_FILE_PATH, "r", encoding="utf-8") as f:
             oauth_data = json.load(f)
         if not oauth_data.get("refresh_token"):
-            return "❌ oauth2.json 缺少 refresh_token"
+            return None, "❌ oauth2.json 缺少 refresh_token"
     except Exception as e:
-        return f"❌ 讀取 oauth2.json 失敗: {str(e)}"
+        return None, f"❌ 讀取 oauth2.json 失敗: {str(e)}"
 
     try:
         sc = OAuth2(None, None, from_file=OAUTH_FILE_PATH, browser_callback=None)
@@ -60,103 +61,236 @@ def fetch_yahoo_fantasy_data():
             if leagues:
                 league_id = leagues[0]
             else:
-                return "錯誤：此 Yahoo 帳號目前沒有任何聯盟資料。"
+                return None, "錯誤：此 Yahoo 帳號目前沒有任何聯盟資料。"
         if "." not in str(league_id):
             league_id = f"{gm.game_id()}.l.{league_id}"
-        lg = gm.to_league(league_id)
+        return gm.to_league(league_id), None
+    except EOFError:
+        return None, "❌ Yahoo OAuth Token 已過期且無法在伺服器環境中互動授權。請在本機重新執行授權流程，取得新的 oauth2.json（包含有效的 refresh_token）後更新 YAHOO_OAUTH_JSON 環境變數。"
+    except Exception as e:
+        return None, f"❌ 連線 Yahoo Fantasy 失敗: {str(e)}"
 
+
+def _extract_team_meta(team_obj):
+    """從 Yahoo team 陣列結構（[[meta dicts...], {...}, ...]）取出 team_key 與隊名。"""
+    meta_list = team_obj[0] if team_obj else []
+    team_key, name = None, None
+    for item in meta_list:
+        if isinstance(item, dict):
+            if "team_key" in item:
+                team_key = item["team_key"]
+            if "name" in item:
+                name = item["name"]
+    return team_key, name or "未知隊伍"
+
+
+def _parse_current_matchups(matchups_data):
+    """解析 Yahoo 奇葩的 matchups 結構，回傳 [{t1_key, t1_name, t1_score, t2_key, t2_name, t2_score}, ...]。
+    這裡的 score 是本週從週一累計到目前為止的總分，不是單日分數。"""
+    results = []
+    try:
+        matchups_dict = matchups_data.get('fantasy_content', {}).get('league', [{}, {}])[1].get('scoreboard', {}).get('0', {}).get('matchups', {})
+    except Exception as e:
+        print(f"定位 matchups 節點失敗: {e}")
+        return results
+
+    for key, val in matchups_dict.items():
+        if not key.isdigit():
+            continue
+        try:
+            matchup = val.get('matchup', {})
+            teams_data = matchup.get('0', {}).get('teams', {})
+            t1_obj = teams_data.get('0', {}).get('team', [])
+            t2_obj = teams_data.get('1', {}).get('team', [])
+            if len(t1_obj) < 2 or len(t2_obj) < 2:
+                continue
+
+            t1_key, t1_name = _extract_team_meta(t1_obj)
+            t2_key, t2_name = _extract_team_meta(t2_obj)
+            t1_score = _to_float(t1_obj[1].get('team_points', {}).get('total', '0'))
+            t2_score = _to_float(t2_obj[1].get('team_points', {}).get('total', '0'))
+
+            results.append({
+                "t1_key": t1_key, "t1_name": t1_name, "t1_score": t1_score,
+                "t2_key": t2_key, "t2_name": t2_name, "t2_score": t2_score,
+            })
+        except Exception as e:
+            print(f"解析對戰組合 {key} 失敗: {e}")
+    return results
+
+
+def _render_standings_section(standings):
+    """Yahoo 官方正式排名（上週結算，不含本週即時戰況）。"""
+    report = "📊 聯盟排名\n"
+    report += "-" * 30 + "\n"
+
+    medals = {1: "🥇", 2: "🥈", 3: "🥉", 8: "[豆汁組]🤮", 9: "[豆汁組]🤮", 10: "[豆汁組]🤢"}
+    for team in standings:
+        name = team.get("name", "未知隊伍")
+        rank_raw = team.get("rank", "?")
+        rank = int(rank_raw) if str(rank_raw).isdigit() else None
+        medal = medals.get(rank, "　")
+
+        outcome = team.get("outcome_totals", {})
+        wins   = outcome.get("wins", "-")
+        losses = outcome.get("losses", "-")
+        ties   = outcome.get("ties", "0")
+        pct    = outcome.get("percentage", "-")
+        games_back = team.get("games_back", "-") or "-"
+
+        record = f"{wins}-{losses}" + (f"-{ties}" if ties not in ("0", 0, None) else "")
+        report += f"{medal} {rank_raw}. {name}\n"
+        report += f"    戰績 {record}（勝率 {pct}）落後 {games_back} 場\n"
+    return report
+
+
+def _render_matchup_section(current_week, matchups):
+    """本週對戰戰況（累計到目前為止的比分）。"""
+    report = f"⚔️ Week {current_week} 對戰戰況\n"
+    report += "-" * 30 + "\n"
+
+    if not matchups:
+        report += "（暫無本週對戰資料或格式解析失敗）\n"
+        return report
+
+    for idx, m in enumerate(matchups, start=1):
+        t1_score, t2_score = m["t1_score"], m["t2_score"]
+        diff = abs(t1_score - t2_score)
+        if t1_score > t2_score:
+            line = f"👑 {m['t1_name']} {t1_score}  -  {t2_score} {m['t2_name']}"
+        elif t2_score > t1_score:
+            line = f"{m['t1_name']} {t1_score}  -  {t2_score} 👑 {m['t2_name']}"
+        else:
+            line = f"🤝 {m['t1_name']} {t1_score}  -  {t2_score} {m['t2_name']}（平手）"
+        report += f"Match {idx}：{line}\n"
+        report += f"    分差 {diff:.1f} 分\n\n"
+    return report
+
+
+def fetch_yahoo_fantasy_data():
+    """完整戰報：聯盟排名 + 本週對戰戰況（給 /send-report、/get-top3、/get-tail3 用，格式維持不變）。"""
+    lg, err = _connect_league()
+    if err:
+        return err
+
+    try:
         settings = lg.settings()
         standings = lg.standings()
         current_week = lg.current_week()
-        matchups_data = lg.matchups()
+        matchups = _parse_current_matchups(lg.matchups())
 
-        # 5. 格式化成戰報文字
         report = f"🏆 Yahoo Fantasy 聯盟戰報 ({YAHOO_SPORT.upper()})\n"
         report += "=" * 20 + "\n"
         report += f"聯盟名稱：{settings.get('name', '未知')}\n"
         report += f"目前週次：Week {current_week}\n"
         report += f"更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-
-        # --- A. 聯盟排名 (Standings) ---
-        report += "📊 聯盟排名\n"
-        report += "-" * 30 + "\n"
-
-        medals = {1: "🥇", 2: "🥈", 3: "🥉", 8: "[豆汁組]🤮", 9: "[豆汁組]🤮", 10: "[豆汁組]🤢"}
-        for team in standings:
-            name = team.get("name", "未知隊伍")
-            rank_raw = team.get("rank", "?")
-            rank = int(rank_raw) if str(rank_raw).isdigit() else None
-            medal = medals.get(rank, "　")
-
-            outcome = team.get("outcome_totals", {})
-            wins   = outcome.get("wins", "-")
-            losses = outcome.get("losses", "-")
-            ties   = outcome.get("ties", "0")
-            pct    = outcome.get("percentage", "-")
-            games_back = team.get("games_back", "-") or "-"
-
-            record = f"{wins}-{losses}" + (f"-{ties}" if ties not in ("0", 0, None) else "")
-            report += f"{medal} {rank_raw}. {name}\n"
-            report += f"    戰績 {record}（勝率 {pct}）落後 {games_back} 場\n"
-        report += "\n"
-
-        # --- B. 本週對戰成績 (Matchups) ---
-        report += f"⚔️ Week {current_week} 對戰戰況\n"
-        report += "-" * 30 + "\n"
-
-        # 解析 Yahoo 奇葩的 matchups 結構
-        matchups_dict = {}
-        try:
-            # 依據你的 JSON 結構定位到 matchups 節點
-            matchups_dict = matchups_data.get('fantasy_content', {}).get('league', [{}, {}])[1].get('scoreboard', {}).get('0', {}).get('matchups', {})
-        except Exception as e:
-            print(f"定位 matchups 節點失敗: {e}")
-
-        if matchups_dict:
-            match_idx = 1
-            # 遍歷 "0", "1", "2", "3"... 等對戰組合
-            for key, val in matchups_dict.items():
-                if key.isdigit():
-                    try:
-                        matchup = val.get('matchup', {})
-                        # 取得 teams 中的 "0" 與 "1" 兩隊
-                        teams_data = matchup.get('0', {}).get('teams', {})
-
-                        t1_obj = teams_data.get('0', {}).get('team', [])
-                        t2_obj = teams_data.get('1', {}).get('team', [])
-
-                        if len(t1_obj) >= 2 and len(t2_obj) >= 2:
-                            # 1. 解析隊伍名稱 (在第一個陣列元素的 index 2 的 'name')
-                            t1_name = t1_obj[0][2].get('name', '未知隊伍1')
-                            t2_name = t2_obj[0][2].get('name', '未知隊伍2')
-
-                            # 2. 解析當前比分 (在第二個元素 dictionary 的 'team_points' 裡)
-                            t1_score = t1_obj[1].get('team_points', {}).get('total', '0')
-                            t2_score = t2_obj[1].get('team_points', {}).get('total', '0')
-
-                            t1_val, t2_val = _to_float(t1_score), _to_float(t2_score)
-                            diff = abs(t1_val - t2_val)
-
-                            if t1_val > t2_val:
-                                line = f"👑 {t1_name} {t1_score}  -  {t2_score} {t2_name}"
-                            elif t2_val > t1_val:
-                                line = f"{t1_name} {t1_score}  -  {t2_score} 👑 {t2_name}"
-                            else:
-                                line = f"🤝 {t1_name} {t1_score}  -  {t2_score} {t2_name}（平手）"
-
-                            report += f"Match {match_idx}：{line}\n"
-                            report += f"    分差 {diff:.1f} 分\n\n"
-                            match_idx += 1
-                    except Exception as e:
-                        print(f"解析對戰組合 {key} 失敗: {e}")
-        else:
-            report += "（暫無本週對戰資料或格式解析失敗）\n"
+        report += _render_standings_section(standings) + "\n"
+        report += _render_matchup_section(current_week, matchups)
         return report
-
-    except EOFError:
-        return "❌ Yahoo OAuth Token 已過期且無法在伺服器環境中互動授權。請在本機重新執行授權流程，取得新的 oauth2.json（包含有效的 refresh_token）後更新 YAHOO_OAUTH_JSON 環境變數。"
     except Exception as e:
         return f"❌ 抓取 Yahoo Fantasy 資料時發生錯誤: {str(e)}"
+
+
+def fetch_matchup_report():
+    """戰報：只回傳本週目前對戰比分（累計到目前為止，不含排名）。"""
+    lg, err = _connect_league()
+    if err:
+        return err
+
+    try:
+        current_week = lg.current_week()
+        matchups = _parse_current_matchups(lg.matchups())
+        report = _render_matchup_section(current_week, matchups)
+        report += f"\n更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        return report
+    except Exception as e:
+        return f"❌ 抓取本週對戰資料時發生錯誤: {str(e)}"
+
+
+def fetch_standings_report():
+    """排名：Yahoo 官方正式排名（固定值，上週結算，不含本週即時戰況）。"""
+    lg, err = _connect_league()
+    if err:
+        return err
+
+    try:
+        settings = lg.settings()
+        standings = lg.standings()
+        report = f"🏆 Yahoo Fantasy 聯盟排名 ({YAHOO_SPORT.upper()})\n"
+        report += "=" * 20 + "\n"
+        report += f"聯盟名稱：{settings.get('name', '未知')}\n\n"
+        report += _render_standings_section(standings)
+        report += f"\n更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        return report
+    except Exception as e:
+        return f"❌ 抓取聯盟排名時發生錯誤: {str(e)}"
+
+
+def fetch_live_standings_report():
+    """即時排名：把本週目前戰況（team_points.total 領先方）暫記一勝，推算「假設現在收官」的排名，
+    並在每隊後面附上本週目前累計分數。"""
+    lg, err = _connect_league()
+    if err:
+        return err
+
+    try:
+        standings = lg.standings()
+        current_week = lg.current_week()
+        matchups = _parse_current_matchups(lg.matchups())
+
+        # 1. 用 team_key 建立可變戰績表
+        records = {}
+        for team in standings:
+            t_key = team.get("team_key") or team.get("name")
+            outcome = team.get("outcome_totals", {})
+            records[t_key] = {
+                "name": team.get("name", "未知隊伍"),
+                "wins": _to_float(outcome.get("wins", 0)),
+                "losses": _to_float(outcome.get("losses", 0)),
+                "ties": _to_float(outcome.get("ties", 0)),
+                "live_score": None,
+            }
+
+        # 2. 套用本週即時戰況：目前領先方暫記 +1 勝，落後方 +1 敗，平手則各 +1 和
+        for m in matchups:
+            k1, k2 = m["t1_key"], m["t2_key"]
+            if k1 not in records or k2 not in records:
+                continue
+            records[k1]["live_score"] = m["t1_score"]
+            records[k2]["live_score"] = m["t2_score"]
+            if m["t1_score"] > m["t2_score"]:
+                records[k1]["wins"] += 1
+                records[k2]["losses"] += 1
+            elif m["t2_score"] > m["t1_score"]:
+                records[k2]["wins"] += 1
+                records[k1]["losses"] += 1
+            else:
+                records[k1]["ties"] += 1
+                records[k2]["ties"] += 1
+
+        # 3. 重新計算勝率、依勝率排序
+        for r in records.values():
+            total = r["wins"] + r["losses"] + r["ties"]
+            r["win_pct"] = (r["wins"] + 0.5 * r["ties"]) / total if total else 0.0
+        ranked = sorted(records.values(), key=lambda r: r["win_pct"], reverse=True)
+
+        medals = ["🥇", "🥈", "🥉"]
+        report = f"🔴 即時排名（含 Week {current_week} 目前戰況推算）\n"
+        report += "=" * 20 + "\n"
+        report += "⚠️ 本週對戰尚未結束，以下為「假設現在收官」的推算排名，非 Yahoo 官方正式結果\n"
+        report += "-" * 30 + "\n"
+
+        for idx, r in enumerate(ranked, start=1):
+            medal = medals[idx - 1] if idx <= 3 else "　"
+            wins_i, losses_i, ties_i = int(r["wins"]), int(r["losses"]), int(r["ties"])
+            record = f"{wins_i}-{losses_i}" + (f"-{ties_i}" if ties_i else "")
+            score_note = f"[本週 {r['live_score']:.1f} 分]" if r["live_score"] is not None else ""
+            report += f"{medal} {idx}. {r['name']}（{record}，勝率 {r['win_pct']:.3f}）{score_note}\n"
+
+        report += f"\n更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        return report
+    except Exception as e:
+        return f"❌ 抓取即時排名時發生錯誤: {str(e)}"
 
 
 def filter_standings(full_report: str, mode: str) -> str:

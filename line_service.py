@@ -4,6 +4,9 @@ import requests
 from yahoo_service import (
     init_yahoo_oauth_file,
     fetch_yahoo_fantasy_data,
+    fetch_matchup_report,
+    fetch_standings_report,
+    fetch_live_standings_report,
     fetch_stat_leaders,
     filter_standings,
     STAT_CONFIG,
@@ -16,7 +19,9 @@ LINE_TARGET_ID            = os.environ.get("LINE_TARGET_ID", "")
 
 KEYWORDS_TOP3  = ["冠軍", "猛哥", "前三"]
 KEYWORDS_TAIL3 = ["豆汁", "墊底", "阿嬤都比你強"]
-KEYWORDS_ALL   = ["戰報", "戰爆"]
+KEYWORDS_ALL   = ["戰報", "戰爆"]       # 只回本週目前對戰比分
+KEYWORDS_STANDINGS      = ["排名"]      # 固定排名（Yahoo 官方，上週結算）
+KEYWORDS_LIVE_STANDINGS = ["即時排名", "即時戰況"]  # 含本週目前戰況推算的排名
 # 直接從 STAT_CONFIG / COMBO_STAT_KEYWORDS 匯總，避免兩邊清單長出來不同步
 KEYWORDS_STATS = sorted(
     {kw for cfg in STAT_CONFIG.values() for kw in cfg["keywords"]} | set(COMBO_STAT_KEYWORDS.keys())
@@ -98,17 +103,20 @@ def reply_line_message(reply_token: str, text: str):
 
 def reply_keyword_task(reply_token: str, keyword: str):
     init_yahoo_oauth_file()
-    full_report = fetch_yahoo_fantasy_data()
 
     # 比對時轉小寫，確保英文關鍵字（如 top3）大小寫都能通
     keyword_lower = keyword.lower()
     if keyword_lower in [k.lower() for k in KEYWORDS_STATS]:
         reply_content = fetch_stat_leaders(keyword_lower)
+    elif keyword_lower in [k.lower() for k in KEYWORDS_LIVE_STANDINGS]:
+        reply_content = fetch_live_standings_report()
     elif keyword_lower in [k.lower() for k in KEYWORDS_TOP3]:
-        reply_content = filter_standings(full_report, "top3")
+        reply_content = filter_standings(fetch_yahoo_fantasy_data(), "top3")
     elif keyword_lower in [k.lower() for k in KEYWORDS_TAIL3]:
-        reply_content = filter_standings(full_report, "tail3")
-    else:  # 戰報
-        reply_content = full_report
+        reply_content = filter_standings(fetch_yahoo_fantasy_data(), "tail3")
+    elif keyword_lower in [k.lower() for k in KEYWORDS_STANDINGS]:
+        reply_content = fetch_standings_report()
+    else:  # 戰報/戰爆：只回本週目前對戰比分
+        reply_content = fetch_matchup_report()
 
     reply_line_message(reply_token, reply_content)
